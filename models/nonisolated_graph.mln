@@ -1,0 +1,28 @@
+//
+// P(friends(Guy,Nima))  = 0.4580488556024473
+// P(smokes(Guy))        = 0.49999999999999906
+// P(friends(Nima,Nima)) = 0.49999999999999906
+//
+
+vertex = 5
+E(vertex, vertex)
+// R(vertex, vertex)
+// T1(vertex)
+// T2(vertex)
+
+!E(x,x).
+!E(x,y) v E(y,x).
+Exist y E(x,y).
+// -1 E(x,y)
+// Exist y !T1(x) v E(x,y).
+// T1(x) v !E(x,y).
+// !R(x,y) v R(y,x).
+// !R(x,x).
+// Exist y R(x,y).
+// Exist y !T2(x) v R(x,y).
+// T2(x) v !R(x,y).
+// T1(1).
+// T1(2).
+// T2(2).
+// Exist y R(x,y).
+// |E| = 3
