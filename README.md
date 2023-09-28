@@ -1,7 +1,6 @@
-# Exact Sampler for Universally Quantified FO2 (UFO2) and Extensions
+# Exact Sampler for FO2 sentence and SC2
 
-Exact sampler for FO2 with cardinality constraints.
-This tool is for sampling instances or combinatorical structures from FO2 theory with cardinality constraints.
+This tool is for sampling instances or combinatorical structures from FO2 and SC2 theory.
 
 
 ## Input format
@@ -9,7 +8,7 @@ This tool is for sampling instances or combinatorical structures from FO2 theory
 - Markov Logic Network (MLN) format, also see [Pracmln](http://www.pracmln.org/mln_syntax.html)
 - Cardinality constraint: `|P| = k`
 
-   
+
 ### Example input file
 
 A `friends-smokes` MLN:
@@ -23,36 +22,25 @@ smokes(person)
 1 !friends(x,y) v !smokes(x) v smokes(y) # i.e., friends(x,y) ^ smokes(x) => smokes(y). NOTE: only support CNF for now
 ```
 
-2 colored tree:
+2-regular graphs:
+
 ```
-vertex = 9
+vertex = 10
 E(vertex, vertex)
-red(vertex)
-black(vertex)
+F1(vertex, vertex)
+F2(vertex, vertex)
 
 !E(x,x).
 !E(x,y) v E(y,x).
-red(x) v black(x).
-!red(x) v !black(x).
-(!E(x,y) v !red(x) v !red(y)) ^ (!E(x,y) v !black(x) v !black(y)).
-Tree[E]
+!E(x,y) v F1(x,y) v F2(x,y).
+!F1(x,y) v E(x,y).
+!F2(x,y) v E(x,y).
+!F1(x,y) v !F2(x,y).
+Exist y F1(x,y).
+Exist y F2(x,y).
+|E| = 20
 ```
-
-2 red-black tree with exact k red vertices:
-```
-vertex = 9
-E(vertex, vertex)
-red(vertex)
-black(vertex)
-
-!E(x,x).
-!E(x,y) v E(y,x).
-red(x) v black(x).
-!red(x) v !black(x).
-(!E(x,y) v !red(x) v !red(y)) ^ (!E(x,y) v !black(x) v !black(y)).
-Tree[E]
-|a| = 4
-```
+> Note: You need to convert SC2 sentence into FO2 sentence with cardinality constraints by yourself.
 
 More examples are in [models](models/)
 
@@ -64,18 +52,18 @@ $ pip install -r requirements.txt
 ```
 Add path to your PYTHONPATH:
 ```
-$ export PYTHONPATH=$(pwd)/sampling_ufo2:$PYTHONPATH
+$ export PYTHONPATH=$(pwd)/sampling_fo2:$PYTHONPATH
 ```
 
 
 ### How to use
 Run the following command:
 ```
-$ python sampling_ufo2/sampler.py -i models/friendsmoker.mln -k 10
+$ python sampling_fo2/sampler.py -i models/friendsmoker.mln -k 10 -s
 ```
 Find more arguments: 
 ```
-$ python sampling_ufo2/sampler.py -h
+$ python sampling_fo2/sampler.py -h
 ```
 
 ## References
