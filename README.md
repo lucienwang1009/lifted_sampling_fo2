@@ -3,6 +3,7 @@
 This tool is for sampling instances or combinatorical structures from the two-variable fragment of first-order logic.
 
 
+
 ## Input format
 
 1. First-order sentence with at most two logic variables, see [sampling_fo2/parser/fol_grammer.py](fol_grammar.py) for details, e.g.,
@@ -22,7 +23,7 @@ This tool is for sampling instances or combinatorical structures from the two-va
   * `|P| <= k`
   * ...
 
-   
+
 ### Example input file
 
 2 colored graphs:
@@ -35,7 +36,8 @@ This tool is for sampling instances or combinatorical structures from the two-va
 V = 10
 ```
 
-2 regular graphs (you need to convert C2 to FO2 + cardinality constraint):
+
+2 regular graphs:
 ```
 \forall X: (~E(X,X)) &
 \forall X: (\forall Y: ((E(X,Y) -> E(Y,X)) &
@@ -47,6 +49,7 @@ V = 10
 V = 6
 |E| = 12
 ```
+> Note: You need to convert SC2 sentence into FO2 sentence with cardinality constraints by yourself.
 
 Sampling possible worlds from `friends-smokes` MLN:
 ```
@@ -76,11 +79,11 @@ $ export PYTHONPATH=$(pwd)/sampling_fo2:$PYTHONPATH
 ### How to use
 Run the following command:
 ```
-$ python sampling_ufo2/sampler.py -i models/friendsmoker.mln -k 10
+$ python sampling_fo2/sampler.py -i models/friendsmoker.mln -k 10 -s
 ```
 Find more arguments: 
 ```
-$ python sampling_ufo2/sampler.py -h
+$ python sampling_fo2/sampler.py -h
 ```
 
 ## References
