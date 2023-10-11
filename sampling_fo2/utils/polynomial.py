@@ -1,6 +1,8 @@
-import random
+from __future__ import annotations
 
-from typing import Iterable, List, Dict, Tuple
+import random
+from itertools import accumulate
+from typing import Iterable, Generator
 from functools import reduce
 from itertools import accumulate, repeat
 
@@ -13,11 +15,11 @@ Rational = Rational
 Poly = Expr
 
 
-def create_vars(conf):
+def create_vars(conf: str) -> list[Symbol]:
     return var(conf)
 
 
-def expand(polynomial):
+def expand(polynomial: Poly) -> Poly:
     return polynomial.expand()
 
 
@@ -47,10 +49,10 @@ def _get_degrees(monomial: Poly):
         )
 
 
-def coeff_dict(p: Poly, syms: List[Symbol]) -> Dict[Tuple[int, ...], Rational]:
+def coeff_dict(p: Poly, gens: list[Symbol]) -> Generator[tuple[int], Rational, None]:
     for monomial, coeff in p.as_coefficients_dict().items():
         degrees = dict(_get_degrees(monomial))
-        yield tuple(degrees.get(sym, 0) for sym in syms), coeff
+        yield tuple(degrees.get(sym, 0) for sym in gens), coeff
 
 
 def _choices_int_weights(population: Iterable, weights: Iterable[int], k=1):
@@ -59,10 +61,10 @@ def _choices_int_weights(population: Iterable, weights: Iterable[int], k=1):
     total = cum_weights[-1]
     hi = n - 1
     return [population[bisect_left(cum_weights, random.randint(1, total), 0, hi)]
-            for i in repeat(None, k)]
+            for _ in repeat(None, k)]
 
 
-def choices(population: Iterable, weights: Iterable[Rational], k=1) -> List:
+def choices(population: Iterable, weights: Iterable[Rational], k=1) -> list:
     """
     Return a k sized list of population elements chosen with replacement.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import numpy as np
 import argparse
@@ -9,55 +11,42 @@ import pickle
 from tqdm import tqdm
 from logzero import logger
 from contexttimer import Timer
-from typing import List, Set, FrozenSet, Tuple, Dict
 from collections import defaultdict
 
-from sampling_fo2.fol.syntax import Atom, Const, Lit, a, b
-from sampling_fo2.utils import MultinomialCoefficients, multinomial, TreeSumContext, \
-    Rational, RingElement, coeff_monomial, round_rational, choices, \
+from sampling_fo2.context import WFOMSContext
+from sampling_fo2.context.existential_context import \
+    BlockType, ExistentialContext, ExistentialTwoTable
+from sampling_fo2.fol.syntax import AtomicFormula, Const, a, b
+from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
+    Rational, RingElement, coeff_monomial, round_rational, \
     PREDS_FOR_EXISTENTIAL, expand
-from sampling_fo2.parser import parse_mln_constraint
+from sampling_fo2.parser import parse_input
 from sampling_fo2.cell_graph import Cell, CellGraph
-from sampling_fo2.context import WFOMCContext, EBType, DRWFOMCContext
-from sampling_fo2.network import MLN, TreeConstraint, CardinalityConstraint
+from sampling_fo2.utils.polynomial import choices
 
-from sampling_fo2.wfomc import cc_weighting_fn, precompute_ext_weight, \
-    assign_cell, get_config_weight_standard
-from sampling_fo2.existential_context import ExistentialContext
+from sampling_fo2.wfomc import get_config_weight_standard_faster, \
+    get_config_weight_standard
 
 
 class Sampler(object):
-    def __init__(self, mln: MLN, tree_constraint: TreeConstraint,
-                 cardinality_constraint: CardinalityConstraint):
-        if mln.contain_existential_quantifier():
-            self.context: DRWFOMCContext = DRWFOMCContext(
-                mln, tree_constraint, cardinality_constraint
-            )
-        else:
-            self.context: WFOMCContext = WFOMCContext(
-                mln, tree_constraint, cardinality_constraint
-            )
+    def __init__(self, context: WFOMSContext):
+        self.context: WFOMSContext = context
         get_weight = self.context.get_weight
-        if self.context.contain_cardinality_constraint():
-            get_weight, self.monomial = cc_weighting_fn(
-                get_weight,
-                self.context.cardinality_constraint.pred2card
-            )
 
-        self.domain: List[Const] = list(self.context.domain)
+        self.domain: list[Const] = list(self.context.domain)
         self.domain_size: int = len(self.domain)
         logger.debug('domain: %s', self.domain)
         self.cell_graph: CellGraph = CellGraph(
-            self.context.sentence, get_weight
+            self.context.formula, get_weight
         )
         MultinomialCoefficients.setup(self.domain_size)
         self.configs, self.weights = self._get_config_weights(
             self.cell_graph, self.domain_size)
 
         if self.context.contain_existential_quantifier():
-            # Precomputed weights for existential quantifier
+            # Precomputed weights for cell configs
             self.uni_cell_graph: CellGraph = CellGraph(
-                self.context.uni_sentence, get_weight
+                self.context.uni_formula, get_weight
             )
             # self.uni_cell_graph.show()
             self.configs, self.weights = self._adjust_config_weights(
@@ -68,7 +57,7 @@ class Sampler(object):
         wfomc = sum(self.weights)
         if wfomc == 0:
             raise RuntimeError(
-                'Unsatisfiable MLN!'
+                'Unsatisfiable formula!!'
             )
         round_val = round_rational(wfomc)
         logger.info('wfomc (round):%s (exp(%s))',
@@ -79,32 +68,75 @@ class Sampler(object):
         self.cells = self.cell_graph.get_cells()
 
         if self.context.contain_existential_quantifier():
-            self.skolem_cell_graph: CellGraph = CellGraph(
-                self.context.partial_skolem_sentence, get_weight
+            self.block_cell_graph: CellGraph = CellGraph(
+                self.context.block_encoded_formula, get_weight
             )
-            # Precomputed weights for existential quantifier
-            self.existential_weights: Dict[
-                FrozenSet[Tuple[Cell, int, int]], RingElement
+            # Precomputed weights for cell + block configuration
+            # NOTE: here the cell + block is the `CELL` in the sampling paper
+            self.cb_weights: dict[
+                frozenset[tuple[Cell, BlockType, int]], RingElement
             ] = dict()
             logger.info('Pre-compute the weights for existential quantifiers')
             for n in range(1, self.domain_size):
-                self.existential_weights.update(
-                    precompute_ext_weight(
-                        self.skolem_cell_graph, n, self.context)
+                self.cb_weights.update(
+                    self._precompute_cb_weight(
+                        self.block_cell_graph, n, self.context)
                 )
             logger.debug('pre-computed weights for existential quantifiers:\n%s',
-                         self.existential_weights)
+                         self.cb_weights)
 
         # for measuring performance
         self.t_sampling = 0
         self.t_assigning = 0
         self.t_sampling_models = 0
 
-    def _adjust_config_weights(self, configs: List[Tuple[int, ...]],
-                               weights: List[RingElement],
+    def _precompute_cb_weight(self, cell_graph: CellGraph, domain_size: int,
+                              context: WFOMSContext) \
+            -> dict[frozenset[tuple[Cell, BlockType, int]], RingElement]:
+        cb_weights = defaultdict(lambda: Rational(0, 1))
+        cells = cell_graph.get_cells()
+        # cell + block configuration, i.e., the `CELL` configuration in
+        # the sampling paper
+        cb_configs = []
+        for cell in cells:
+            config = []
+            for domain_pred, block_type in context.domain_to_block_type.items():
+                if cell.is_positive(domain_pred):
+                    config.append((
+                        cell.drop_preds(prefixes=PREDS_FOR_EXISTENTIAL),
+                        block_type
+                    ))
+            cb_configs.append(config)
+
+        cell_weights, edge_weights = cell_graph.get_all_weights()
+
+        for partition in multinomial(len(cells), domain_size):
+            res = get_config_weight_standard_faster(
+                partition, cell_weights, edge_weights
+            )
+            cb_config = defaultdict(lambda: 0)
+            for idx, n in enumerate(partition):
+                for config in cb_configs[idx]:
+                    cb_config[config] += n
+            cb_config = dict(
+                (k, v) for k, v in cb_config.items() if v > 0
+            )
+            cb_weights[
+                frozenset((*k, v) for k, v in cb_config.items())
+            ] += (Rational(MultinomialCoefficients.coef(partition), 1) * res)
+        # remove duplications
+        for cb_config in cb_weights.keys():
+            dup_factor = Rational(MultinomialCoefficients.coef(
+                tuple(c[2] for c in cb_config)
+            ), 1)
+            cb_weights[cb_config] /= dup_factor
+        return cb_weights
+
+    def _adjust_config_weights(self, configs: list[tuple[int, ...]],
+                               weights: list[RingElement],
                                src_cell_graph: CellGraph,
                                dest_cell_graph: CellGraph) -> \
-            Tuple[List[Tuple[int, ...]], List[Rational]]:
+            tuple[list[tuple[int, ...]], list[Rational]]:
         src_cells = src_cell_graph.get_cells()
         dest_cells = dest_cell_graph.get_cells()
         mapping_mat = np.zeros(
@@ -122,104 +154,110 @@ class Sampler(object):
         return list(adjusted_config_weight.keys()), \
             list(adjusted_config_weight.values())
 
-    def _sample_ext_evidences(self, cell_assignment: List[Cell],
+    def _sample_ext_evidences(self, cell_assignment: list[Cell],
                               cell_weight: RingElement) \
-            -> Dict[Tuple[int, int], FrozenSet[Lit]]:
+            -> dict[tuple[int, int], frozenset[AtomicFormula]]:
         ext_config = ExistentialContext(
-            cell_assignment, self.context.tseitin_to_extpred)
+            cell_assignment, self.context.binary_ext_preds)
 
         # Get the total weight of the current configuration
         cell_config = tuple(cell_assignment.count(cell) for cell in self.cells)
         total_weight = self.weights[self.configs.index(
             cell_config)] / MultinomialCoefficients.coef(cell_config)
 
-        pair_evidences: Dict[Tuple[int, int],
-                             FrozenSet[Lit]] = dict()
+        pair_evidences: dict[tuple[int, int],
+                             frozenset[AtomicFormula]] = dict()
         q = Rational(1, 1)
         while not ext_config.all_satisfied():
-            selected_cell, selected_eetype = ext_config.select_eutype()
+            selected_cell, selected_block = ext_config.select_cell_block_type()
             selected_idx = ext_config.reduce_element(
-                selected_cell, selected_eetype)
-            logger.debug('select element: %s, cell: %s, ee type: %s',
-                         selected_idx, selected_cell, selected_eetype)
+                selected_cell, selected_block)
+            logger.debug('select element: %s, cell: %s, block type: %s',
+                         selected_idx, selected_cell, selected_block)
 
-            ebtype_weights: Dict[Cell, Dict[EBType, RingElement]] = dict()
-            # filter all impossible EB-types
+            etable_weights: dict[
+                Cell, dict[ExistentialTwoTable, RingElement]
+            ] = dict()
+            # filter all impossible existential 2tables
             for cell in self.cells:
                 cell_pair = (selected_cell, cell)
                 weights = dict()
-                for ebtype in self.context.ebtypes:
-                    evidences = ebtype.get_evidences()
+                for etable in self.context.etables:
+                    evidences = etable.get_evidences()
                     if self.cell_graph.satisfiable(cell_pair, evidences):
-                        weights[ebtype] = self.cell_graph.get_edge_weight(
+                        weights[etable] = self.cell_graph.get_two_table_weight(
                             cell_pair, evidences
                         )
-                ebtype_weights[cell] = weights
+                etable_weights[cell] = weights
 
-            for eb_config in ext_config.iter_eb_config(
-                ebtype_weights
+            for etable_config in ext_config.iter_etable_config(
+                etable_weights
             ):
-                utype_weight = self.cell_graph.get_cell_weight(selected_cell)
-                eb_config_per_cell = defaultdict(
-                    lambda: defaultdict(lambda: 0))
-                overall_eb_config = defaultdict(lambda: 0)
-                for (cell, eetype), config in eb_config.items():
-                    for ebtype, num in config.items():
-                        eb_config_per_cell[cell][ebtype] += num
-                        overall_eb_config[ebtype] += num
+                cell_weight = self.cell_graph.get_cell_weight(selected_cell)
+                etable_config_per_cell = defaultdict(
+                    lambda: defaultdict(lambda: 0)
+                )
+                overall_etable_config = defaultdict(lambda: 0)
+                for (cell, _), config in etable_config.items():
+                    for etable, num in config.items():
+                        etable_config_per_cell[cell][etable] += num
+                        overall_etable_config[etable] += num
 
-                if not ext_config.satisfied(selected_eetype, overall_eb_config):
+                if not ext_config.satisfied(selected_block, overall_etable_config):
                     continue
 
                 coeff = Rational(1, 1)
-                for _, config in eb_config.items():
+                for _, config in etable_config.items():
                     coeff *= Rational(MultinomialCoefficients.coef(
                         tuple(config.values())), 1)
 
-                total_weight_ebtype = Rational(1, 1)
-                for cell, config in eb_config_per_cell.items():
-                    for ebtype, num in config.items():
-                        total_weight_ebtype *= (
-                            ebtype_weights[cell][ebtype] ** Rational(num, 1))
+                total_weight_etable = Rational(1, 1)
+                for cell, config in etable_config_per_cell.items():
+                    for etable, num in config.items():
+                        total_weight_etable *= (
+                            etable_weights[cell][etable] ** Rational(num, 1)
+                        )
 
-                reduced_eu_config = ext_config.reduce_eu_config(eb_config)
-                reduced_weight = self.existential_weights[reduced_eu_config]
+                reduced_cb_config = ext_config.reduce_cb_config(etable_config)
+                reduced_weight = self.cb_weights[reduced_cb_config]
                 # print(q, total_weight_ebtype, utype_weight, coeff,
                 #       reduced_weight)
                 # print(expand(q * total_weight_ebtype * utype_weight * coeff *
                 #       reduced_weight))
-                w = self._get_weight_poly(
-                    q * total_weight_ebtype * utype_weight * coeff *
-                    reduced_weight)
+                w = self.context.decode_result(
+                    q * total_weight_etable * cell_weight *
+                    coeff * reduced_weight
+                )
                 # logger.debug(eb_config)
                 # logger.debug('%s %s', w, total_weight)
                 if random.random() < w / total_weight:
-                    logger.debug('selected eb config:\n%s', eb_config)
-                    ebtype_indices = ext_config.sample_and_update(eb_config)
+                    logger.debug('selected etable config:\n%s', etable_config)
+                    etable_indices = ext_config.sample_and_update(
+                        etable_config)
                     logger.debug('sampled evidences in this step:')
-                    for ebtype, indices in ebtype_indices.items():
+                    for etable, indices in etable_indices.items():
                         for idx in indices:
                             # NOTE: the element order in pair evidences matters!
                             if selected_idx < idx:
                                 pair_evidences[(selected_idx, idx)
-                                               ] = ebtype.get_evidences()
+                                               ] = etable.get_evidences()
                             else:
                                 pair_evidences[(idx, selected_idx)
-                                               ] = ebtype.get_evidences(True)
+                                               ] = etable.get_evidences(True)
                             logger.debug('(%s, %s): %s',
-                                         selected_idx, idx, ebtype)
+                                         selected_idx, idx, etable)
                     # Now the ebtype assignement has been determined!
                     total_weight = w / coeff
-                    q *= (utype_weight * total_weight_ebtype)
+                    q *= (cell_weight * total_weight_etable)
                     break
                 else:
                     total_weight -= w
         return pair_evidences
 
     def _compute_wmc_prod(
-        self, cell_assignment: List[Cell],
-        pair_evidences: Dict[Tuple[int, int], FrozenSet[Lit]] = None
-    ) -> List[RingElement]:
+        self, cell_assignment: list[Cell],
+        pair_evidences: dict[tuple[int, int], frozenset[AtomicFormula]] = None
+    ) -> list[RingElement]:
         wmc_prod = [Rational(1, 1)]
         n_elements = len(cell_assignment)
         # compute from back to front
@@ -228,23 +266,22 @@ class Sampler(object):
                 cell_pair = (cell_assignment[i], cell_assignment[j])
                 pair = (i, j)
                 if pair_evidences is not None and pair in pair_evidences:
-                    edge_weight = self.cell_graph.get_edge_weight(
+                    twotable_weight = self.cell_graph.get_two_table_weight(
                         cell_pair, frozenset(pair_evidences[pair])
                     )
                 else:
-                    edge_weight = self.cell_graph.get_edge_weight(cell_pair)
-                prod = wmc_prod[0] * edge_weight
+                    twotable_weight = self.cell_graph.get_two_table_weight(
+                        cell_pair)
+                prod = wmc_prod[0] * twotable_weight
                 wmc_prod.insert(0, prod)
         return wmc_prod
 
-    def _get_unary_atoms(self, cell_assignment: List[Cell]) -> Set[Atom]:
+    def _get_unary_atoms(self, cell_assignment: list[Cell]) -> set[AtomicFormula]:
         sampled_atoms = set()
         for idx, cell in enumerate(cell_assignment):
             evidences = cell.get_evidences(self.domain[idx])
             positive_lits = filter(lambda lit: lit.positive, evidences)
-            sampled_atoms.update(set(
-                lit.atom for lit in positive_lits
-            ))
+            sampled_atoms.update(set(positive_lits))
         return sampled_atoms
 
     def _get_weight_poly(self, weight: RingElement):
@@ -252,11 +289,11 @@ class Sampler(object):
             return coeff_monomial(expand(weight), self.monomial)
         return weight
 
-    def _sample_binary_atoms(self, cell_assignment: List[Cell],
+    def _sample_binary_atoms(self, cell_assignment: list[Cell],
                              cell_weight: RingElement,
-                             binary_evidences: FrozenSet[Lit] = None,
-                             pair_evidences: Dict[Tuple[int, int],
-                                                  FrozenSet[Lit]] = None) -> Set[Atom]:
+                             binary_evidences: frozenset[AtomicFormula] = None,
+                             pair_evidences: dict[tuple[int, int],
+                                                  frozenset[AtomicFormula]] = None) -> set[AtomicFormula]:
         # NOTE: here the element order matters in pair_evidences!!!
         if pair_evidences is None:
             pair_evidences = defaultdict(list)
@@ -267,15 +304,15 @@ class Sampler(object):
                                        for c in evidence.atom.args)
                     assert len(pair_index) == 2
                     if pair_index[0] < pair_index[1]:
-                        evidence = Lit(evidence.pred()(
+                        evidence = AtomicFormula(evidence.pred()(
                             a, b), evidence.positive)
                     else:
                         pair_index = (pair_index[1], pair_index[0])
-                        evidence = Lit(evidence.pred()(
+                        evidence = AtomicFormula(evidence.pred()(
                             b, a), evidence.positive)
                     pair_evidences[pair_index].append(evidence)
         wmc_prod = self._compute_wmc_prod(cell_assignment, pair_evidences)
-        total_weight = self._get_weight_poly(cell_weight * wmc_prod[0])
+        total_weight = self.context.decode_result(cell_weight * wmc_prod[0])
         q = Rational(1, 1)
         idx = 1
         sampled_atoms = set()
@@ -285,22 +322,23 @@ class Sampler(object):
                     continue
                 logger.debug('Sample the atom consisting of %s(%s) and %s(%s)',
                              i, self.domain[i], j, self.domain[j])
-                # go through all btypes
+                # go through all two tables
                 evidences = None
                 if (i, j) in pair_evidences:
                     evidences = frozenset(pair_evidences[(i, j)])
-                btypes_with_weight = self.cell_graph.get_btypes(
+                twotables_with_weight = self.cell_graph.get_two_tables(
                     (cell_1, cell_2), evidences
                 )
                 # compute the sampling distribution
-                for btype, btype_weight in btypes_with_weight:
-                    gamma_w = self._get_weight_poly(
-                        cell_weight * q * btype_weight * wmc_prod[idx]
+                for twotable, twotable_weight in twotables_with_weight:
+                    gamma_w = self.context.decode_result(
+                        cell_weight * q * twotable_weight * wmc_prod[idx]
                     )
                     if random.random() < gamma_w / total_weight:
                         sampled_raw_atoms = [
-                            lit.atom for lit in btype if lit.positive]
-                        r_hat = btype_weight
+                            lit for lit in twotable if lit.positive
+                        ]
+                        r_hat = twotable_weight
                         total_weight = gamma_w
                         break
                     else:
@@ -327,24 +365,15 @@ class Sampler(object):
         logger.debug('sample on cell configuration %s', config)
         # shuffle domain elements
         random.shuffle(self.domain)
-        # for tree axiom
-        A = None
-        force_edges = None
         with Timer() as t:
-            cell_assignment, cell_weight = assign_cell(
+            cell_assignment, cell_weight = self._assign_cell(
                 self.cell_graph, dict(
                     zip(self.cells, config))
             )
-            sampled_atoms: Set = self._remove_aux_atoms(
+            sampled_atoms: set = self._remove_aux_atoms(
                 self._get_unary_atoms(cell_assignment)
             )
             logger.debug('initial unary atoms: %s', sampled_atoms)
-
-            if self.context.contain_tree_constraint():
-                config_result = self.wfomc.get_config_result_tree(
-                    self.context, self.cell_graph, config)
-                A, force_edges = config_result.A, config_result.force_edges
-                TreeSumContext(A, force_edges)
             self.t_assigning += t.elapsed
 
         pair_evidences = None
@@ -366,41 +395,47 @@ class Sampler(object):
 
     def _remove_aux_atoms(self, atoms):
         # only return atoms with the predicate in the original MLN
-        preds = self.context.mln.preds()
+        preds = self.context.sentence.preds()
         return set(
             filter(lambda atom: atom.pred in preds, atoms)
         )
 
     def _replace_consts(self, term, replacement):
-        if isinstance(term, Atom):
+        if isinstance(term, AtomicFormula):
             args = [replacement.get(a) for a in term.args]
-            return term.pred(*args)
-        elif isinstance(term, Lit):
-            args = [replacement.get(a) for a in term.atom.args]
-            return Lit(term.atom.pred(*args), term.positive)
+            return term.pred(*args) if term.positive else ~term.pred(*args)
         else:
             raise RuntimeError(
                 'Unknown type to replace constant %s', type(term)
             )
 
     def _get_config_weights(self, cell_graph: CellGraph, domain_size: int) \
-            -> Tuple[List[Tuple[int, ...]], List[Rational]]:
-        cell_weights, edge_weights = cell_graph.get_all_weights()
-        cells = cell_graph.get_cells()
+            -> tuple[list[tuple[int, ...]], list[Rational]]:
         configs = []
         weights = []
-        for partition in multinomial(len(cells), domain_size):
+        cells = cell_graph.get_cells()
+        n_cells = len(cells)
+        for partition in multinomial(n_cells, domain_size):
             coef = MultinomialCoefficients.coef(partition)
-            weight = get_config_weight_standard(
-                cell_graph, dict(zip(cells, partition)))
-            # weight = get_config_weight_standard_faster(
-            #     partition, cell_weights, edge_weights
-            # )
+            cell_config = dict(zip(cells, partition))
+            weight = coef * get_config_weight_standard(
+                cell_graph, cell_config
+            )
+            weight = self.context.decode_result(weight)
             if weight != 0:
-                weight = coef * self._get_weight_poly(weight)
                 configs.append(partition)
                 weights.append(weight)
         return configs, weights
+
+    def _assign_cell(self, cell_graph: CellGraph,
+                     config: dict[Cell, int]) -> tuple[list[Cell], RingElement]:
+        cell_assignment = list()
+        w = Rational(1, 1)
+        for cell, n in config.items():
+            for _ in range(n):
+                cell_assignment.append(cell)
+                w = w * cell_graph.get_cell_weight(cell)
+        return cell_assignment, w
 
     def sample(self, k=1):
         samples = []
@@ -410,7 +445,7 @@ class Sampler(object):
         self.t_assigning = 0
         self.t_sampling = 0
         self.t_sampling_models = 0
-        # NOTE: can do it parallelly!
+        # TODO: do it parallelly!
         for idx in tqdm(sampled_idx):
             samples.append(self.sample_on_config(
                 self.configs[idx]
@@ -449,12 +484,15 @@ if __name__ == '__main__':
     else:
         logzero.loglevel(logging.INFO)
     logzero.logfile('{}/log.txt'.format(args.output_dir), mode='w')
-    mln, tree_constraint, cardinality_constraint = parse_mln_constraint(
-        args.input)
+
+    with Timer() as t:
+        problem = parse_input(args.input)
+    context = WFOMSContext(problem)
+    logger.info('Parse input: %ss', t)
 
     with Timer() as total_t:
         with Timer() as t:
-            sampler = Sampler(mln, tree_constraint, cardinality_constraint)
+            sampler = Sampler(context)
         logger.info('elapsed time for initializing sampler: %s', t.elapsed)
         samples = sampler.sample(args.n_samples)
         logger.info('total time for sampling: %s', total_t.elapsed)

@@ -1,9 +1,7 @@
 import numpy as np
 
-from .multinomial import MultinomialCoefficients, multinomial
-from .tree_sum import TreeSumContext, tree_sum
-from .polynomial import Rational, expand, coeff_monomial, create_vars, coeff_dict, \
-    round_rational, choices
+from .multinomial import MultinomialCoefficients, multinomial, multinomial_less_than
+from .polynomial import Rational, expand, coeff_monomial, create_vars, coeff_dict, round_rational
 from .third_typing import RingElement
 
 
@@ -23,11 +21,11 @@ def format_np_complex(num: np.ndarray) -> str:
 __all__ = [
     "MultinomialCoefficients",
     "multinomial",
+    "multinomial_less_than",
     "TreeSumContext",
     'RingElement',
     'Rational',
     'round_rational',
-    'choices',
     'expand',
     'coeff_monomial',
     'coeff_dict',

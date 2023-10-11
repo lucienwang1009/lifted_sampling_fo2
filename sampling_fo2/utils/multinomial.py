@@ -1,21 +1,41 @@
+from __future__ import annotations
+
 import functools
 
-from typing import Tuple, List, FrozenSet
 
-
-def multinomial(length: int, total_sum: int) -> Tuple[int]:
+def multinomial(length: int, total_sum: int) -> tuple[int]:
     """
     Generate a list of numbers, whose size is `length` and sum is `total_sum`
 
     :param length int: length of the generated list
     :param total_sum int: the summation over the list
-    :rtype Tuple[int]:
+    :rtype tuple[int]:
     """
     if length == 1:
         yield (total_sum, )
     else:
         for value in range(total_sum + 1):
             for permutation in multinomial(length - 1, total_sum - value):
+                yield (value, ) + permutation
+
+
+def multinomial_less_than(length: int, total_sum: int) -> tuple[int]:
+    """
+    Generate a list of numbers, whose size is `length` and sum is less than `total_sum`
+
+    :param length int: length of the generated list
+    :param total_sum int: the summation over the list
+    :rtype tuple[int]:
+    """
+    if length == 0:
+        yield ()
+        return
+    if length == 1:
+        for i in range(total_sum + 1):
+            yield (i, )
+    else:
+        for value in range(total_sum + 1):
+            for permutation in multinomial_less_than(length - 1, total_sum - value):
                 yield (value, ) + permutation
 
 
@@ -32,7 +52,7 @@ class MultinomialCoefficients(object):
 
 
     """
-    pt: List[List[int]] = None
+    pt: list[list[int]] = None
     n: int = 0
 
     @staticmethod
@@ -43,8 +63,10 @@ class MultinomialCoefficients(object):
 
         :param n int: the maximal total sum
         """
-        pt: List[List[int]] = []
-        lst: List[int] = [1]
+        if n <= MultinomialCoefficients.n:
+            return
+        pt: list[list[int]] = []
+        lst: list[int] = [1]
         for i in range(n + 1):
             pt.append(lst)
             newlist = []
@@ -58,7 +80,7 @@ class MultinomialCoefficients(object):
 
     @staticmethod
     @functools.lru_cache(maxsize=None)
-    def coef(lst: FrozenSet[int]) -> int:
+    def coef(lst: tuple[int]) -> int:
         """
         Compute the multinomial coefficient of `lst`
         """
@@ -75,11 +97,13 @@ class MultinomialCoefficients(object):
         ret = 1
         tmplist = lst
         while len(tmplist) > 1:
-            ret *= MultinomialCoefficients._mycomb(sum(tmplist), tmplist[-1])
+            ret *= MultinomialCoefficients.comb(sum(tmplist), tmplist[-1])
             tmplist = tmplist[:-1]
         return ret
 
-    def _mycomb(a, b):
+    @staticmethod
+    @functools.lru_cache(maxsize=None)
+    def comb(a, b):
         if a < b:
             return 0
         elif b == 0:

@@ -1,7 +1,0 @@
-domain = 5
-
-func(domain, domain)
-
-!func(x,x).
-Exist y func(x,y).
-|func| = 5
