@@ -2,30 +2,61 @@ from __future__ import annotations
 
 
 from dataclasses import dataclass, field
-from typing import FrozenSet, List, Tuple, Iterable
+from typing import Callable, Iterable
 from collections import OrderedDict
-from pysat.solvers import Solver
+from PrettyPrint import PrettyPrintTree
 
-from . import backend
+from . import boolean_algebra as backend
+
+
+__all__ = [
+    'Pred',
+    'Term',
+    'Var',
+    'Const',
+    'Formula',
+    'QFFormula',
+    'AtomicFormula',
+    'Quantifier',
+    'Universal',
+    'Existential',
+    'Counting',
+    'QuantifiedFormula',
+    'CompoundFormula',
+    'Conjunction',
+    'Disjunction',
+    'Implication',
+    'Equivalence',
+    'Negation',
+    'BinaryFormula',
+    'SCOTT_PREDICATE_PREFIX',
+    'pretty_print',
+    'X', 'Y', 'Z',
+    'U', 'V', 'W',
+    'top', 'bot',
+]
+
+
+class FOLSyntaxError(Exception):
+    pass
 
 
 class Term(object):
     """
     First-order logic terms, including constants and variables
     """
-
-    def __str__(self):
-        return self.name
+    name: str
 
 
-@dataclass(frozen=True)
-class Formula(object):
-    """
-    Formula abstract class
-    """
-    symbol: backend.symbol = field(
-        default=None, repr=False, init=False, hash=False, compare=False)
+SCOTT_PREDICATE_PREFIX = 'scott'
+RESERVED_PRED_NAMES: tuple[str] = (
+    'true',
+    'false',
+    SCOTT_PREDICATE_PREFIX
+)
 
+RESERVED_VAR_NAMES: tuple[str] = (
+)
 
 @dataclass(frozen=True)
 class Pred:
@@ -36,17 +67,19 @@ class Pred:
     arity: int
 
     def __post_init__(self):
+        if self.name.split('_')[0].lower() in RESERVED_PRED_NAMES:
+            raise FOLSyntaxError("Predicate name cannot be %s" % self.name)
         if self.arity < 0:
-            raise RuntimeError("Arity must be a natural number")
+            raise FOLSyntaxError("Arity must be a natural number")
 
     def __call__(self, *args: Term):
         # NOTE(hack): the callable obj cannot be the column of dataframe
-        if len(args) == 0 or not isinstance(args[0], (Var, Const)):
-            return self
+        # if len(args) == 0 or not isinstance(args[0], (Var, Const)):
+        #     return self
         if self.arity != len(args):
-            raise RuntimeError(
+            raise FOLSyntaxError(
                 "Mismatching number of arguments and predicate %s: %s != %s", str(self), self.arity, len(args))
-        return Atom(pred=self, args=tuple(args))
+        return AtomicFormula(pred=self, args=tuple(args), positive=True)
 
     def __str__(self):
         return self.name
@@ -62,10 +95,20 @@ class Var(Term):
     """
     name: str
 
-    def substitute(self, substitution: Substitution) -> Const:
+    def __post_init__(self):
+        if self.name in RESERVED_VAR_NAMES:
+            raise FOLSyntaxError("Variable name cannot be %s" % self.name)
+
+    def substitute(self, substitution: dict[Var, Term]) -> Term:
         if self in substitution:
             return substitution[self]
         return self
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 @dataclass(frozen=True)
@@ -82,306 +125,325 @@ class Const(Term):
         return str(self)
 
 
-@dataclass(frozen=True)
-class Atom(Formula):
-    pred: Pred
-    args: Tuple[Term]
-
-    def __post_init__(self):
-        if len(self.args) != self.pred.arity:
-            raise RuntimeError(
-                "Number of terms does not match the predicate's arity")
-        object.__setattr__(self, 'symbol', backend.get_symbol(self))
-
-    def __str__(self):
-        return '{}({})'.format(self.pred,
-                               ','.join([str(arg) for arg in self.args]))
-
-    def __repr__(self):
-        return str(self)
-
-    def vars(self) -> FrozenSet[Var]:
-        return frozenset(filter(lambda x: isinstance(x, Var), self.args))
-
-    def consts(self) -> FrozenSet[Const]:
-        return frozenset(filter(lambda x: isinstance(x, Const), self.args))
-
-    def substitute(self, substitution: Substitution) -> Atom:
-        substituted_args = []
-        for arg in self.args:
-            substituted_args.append(arg.substitute(substitution))
-        return Atom(self.pred, tuple(substituted_args))
+class Formula(object):
+    """
+    Base class for first-order logic formulas
+    """
+    ...
 
 
 @dataclass(frozen=True)
-class Lit(Formula):
-    atom: Atom
-    positive: bool = True
+class QFFormula(Formula):
+    """
+    Quantifier-free formula
+    """
+    expr: backend.Expr
 
-    def __post_init__(self):
-        atom_symbol = self.atom.symbol
-        if not self.positive:
-            atom_symbol = ~atom_symbol
-        object.__setattr__(self, 'symbol', atom_symbol)
+    def __invert__(self) -> QFFormula:
+        return QFFormula(backend.Not(self.expr))
 
-    def __str__(self):
-        return '{}{}'.format(
-            '' if self.positive else '!',
-            self.atom
-        )
+    def __or__(self, other: Formula) -> Formula:
+        if isinstance(other, (Top, Bot)):
+            return other | self
+        if isinstance(other, QFFormula):
+            return QFFormula(backend.Or(self.expr, other.expr))
+        return other | self
 
-    def __repr__(self):
-        return str(self)
+    def __and__(self, other: Formula) -> Formula:
+        if isinstance(other, (Top, Bot)):
+            return other & self
+        if isinstance(other, QFFormula):
+            return QFFormula(backend.And(self.expr, other.expr))
+        return other & self
 
-    def negate(self) -> Lit:
-        return Lit(self.atom, not self.positive)
+    def implies(self, other: Formula) -> Formula:
+        if isinstance(other, (Top, Bot)):
+            return ~self | other
+        if isinstance(other, QFFormula):
+            return QFFormula(backend.Implies(self.expr, other.expr))
+        return ~self | other
 
-    def vars(self) -> FrozenSet[Var]:
-        return self.atom.vars()
-
-    def consts(self) -> FrozenSet[Const]:
-        return self.atom.consts()
-
-    def substitute(self, substitution: Substitution) -> Lit:
-        return Lit(self.atom.substitute(substitution), self.positive)
-
-    def pred(self) -> Pred:
-        return self.atom.pred
-
-
-@dataclass(frozen=True)
-class Clause(Formula):
-    literals: FrozenSet[Lit]
-
-    def vars(self) -> FrozenSet[Var]:
-        vs = set()
-        for lit in self.literals:
-            vs.update(lit.vars())
-        return frozenset(vs)
-
-    def consts(self) -> FrozenSet[Const]:
-        cs = set()
-        for lit in self.literals:
-            cs.update(lit.consts())
-        return frozenset(cs)
-
-    def atoms(self) -> FrozenSet[Atom]:
-        return frozenset(
-            lit.atom for lit in self.literals
-        )
-
-    def substitute(self, substitution: Substitution) -> Clause:
-        substituted_literals = set()
-        for lit in self.literals:
-            substituted_literals.add(lit.substitute(substitution))
-        cls = type(self)
-        return cls(frozenset(substituted_literals))
-
-    def preds(self) -> FrozenSet[Pred]:
-        return frozenset(
-            lit.pred() for lit in self.literals
-        )
-
-
-@dataclass(frozen=True)
-class ConjunctiveClause(Clause):
-
-    def __post_init__(self):
-        lit_symbols = [lit.symbol for lit in self.literals]
-        object.__setattr__(self, 'symbol', backend.And(*lit_symbols))
-
-    def __str__(self):
-        return ' ^ '.join(
-            [str(lit) for lit in self.literals]
-        )
-
-    def negate(self) -> DisjunctiveClause:
-        return DisjunctiveClause(
-            frozenset(lit.negate() for lit in self.literals)
-        )
-
-    def __invert__(self) -> DisjunctiveClause:
-        return self.negate()
-
-
-@dataclass(frozen=True)
-class DisjunctiveClause(Clause):
-
-    def __post_init__(self):
-        lit_symbols = [lit.symbol for lit in self.literals]
-        object.__setattr__(self, 'symbol', backend.Or(*lit_symbols))
-
-    def __str__(self):
-        return ' v '.join(
-            [str(lit) for lit in self.literals]
-        )
-
-    def negate(self) -> ConjunctiveClause:
-        return ConjunctiveClause(
-            frozenset(lit.negate() for lit in self.literals)
-        )
-
-    def __invert__(self):
-        return self.negate()
-
-    def __and__(self, other):
-        pass
-
-    def __or__(self, other):
-        return DisjunctiveClause(self.literals.union(other.literals))
-
-
-@dataclass(frozen=True)
-class CNF(Formula):
-    clauses: FrozenSet[DisjunctiveClause]
-
-    def __post_init__(self):
-        clause_symbols = [clause.symbol for clause in self.clauses]
-        object.__setattr__(self, 'symbol', backend.And(*clause_symbols))
-
-    def vars(self) -> FrozenSet[Var]:
-        return self._gather('vars')
-
-    def consts(self) -> FrozenSet[Const]:
-        return self._gather('consts')
-
-    def atoms(self) -> FrozenSet[Atom]:
-        return self._gather('atoms')
-
-    def substitute(self, substitution: Substitution) -> Clause:
-        clauses = [clause.substitute(substitution) for clause in self.clauses]
-        return CNF(frozenset(clauses))
-
-    def preds(self) -> FrozenSet[Pred]:
-        return self._gather('preds')
-
-    def Not(self) -> CNF:
-        new_symbol = backend.Not(self.symbol)
-        return backend.to_cnf(new_symbol)
-
-    def Equate(self, other: CNF) -> CNF:
-        new_symbol = backend.Equivalent(self.symbol, other.symbol)
-        return backend.to_cnf(new_symbol)
-
-    def Or(self, other: CNF) -> CNF:
-        new_symbol = backend.Or(self.symbol, other.symbol)
-        return backend.to_cnf(new_symbol)
-
-    def And(self, other: CNF) -> CNF:
-        new_symbol = backend.And(self.symbol, other.symbol)
-        return backend.to_cnf(new_symbol)
-
-    def _gather(self, func_name, **func_kwargs):
-        res = set()
-        for clause in self.clauses:
-            res.update(getattr(clause, func_name)(**func_kwargs))
-        return frozenset(res)
-
-    @classmethod
-    def from_formula(cls, formula: Formula) -> CNF:
-        if isinstance(formula, Atom):
-            return cls.from_atom(formula)
-        elif isinstance(formula, Lit):
-            return cls.from_lit(formula)
-        elif isinstance(formula, DisjunctiveClause):
-            return cls.from_clause(formula)
-        elif isinstance(formula, cls):
-            return formula
+    def equivalent(self, other: Formula) -> Formula:
+        if isinstance(other, (Top, Bot)):
+            return (~self | other) & (self | ~other)
+        if isinstance(other, QFFormula):
+            return QFFormula(backend.Equivalent(self.expr, other.expr))
         else:
-            raise RuntimeError(
-                'Unsupported type: %s', type(formula)
-            )
+            return other.equivalent(self)
 
-    @classmethod
-    def from_pred(cls, pred: Pred, variables: List[Term]) -> CNF:
-        assert pred.arity <= len(variables)
-        return cls.from_atom(pred(*variables[:pred.arity]))
+    def __str__(self) -> str:
+        return str(self.expr)
 
-    @classmethod
-    def from_atom(cls, atom: Atom) -> CNF:
-        return cls.from_lit(Lit(atom))
-
-    @classmethod
-    def from_lit(cls, lit: Lit) -> CNF:
-        return cls.from_clause(DisjunctiveClause(
-            frozenset([lit])
-        ))
-
-    @classmethod
-    def from_clause(cls, clause: DisjunctiveClause) -> CNF:
-        return cls(frozenset([clause]))
-
-    def __str__(self):
-        return ' ^ '.join(
-            ['({})'.format(str(clause)) for clause in self.clauses]
-        )
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self)
 
-    def encode_Dimacs(self, get_weight=None):
-        decode = dict(enumerate(self.atoms(), start=1))
-        encode = {v: k for k, v in decode.items()}
+    def atoms(self) -> frozenset[AtomicFormula]:
+        return backend.get_atoms(self.expr)
 
-        clauses = [
-            [encode[lit.atom] if lit.positive else -encode[lit.atom]
-             for lit in clause.literals]
-            for clause in self.clauses
-        ]
-        if get_weight is not None:
-            for atom, id in encode.items():
-                p_w, n_w = get_weight(atom.pred)
-                clauses.append(
-                    ['w', id, float(p_w / (p_w + n_w))]
-                )
-        return clauses, decode
+    def terms(self) -> Iterable[Term]:
+        for atom in self.atoms():
+            for term in atom.args:
+                yield term
 
-    def _solver_for(self):
-        clauses, decode = self.encode_Dimacs()
-        solver = Solver(bootstrap_with=clauses)
-        return solver, decode
+    def vars(self) -> frozenset[Var]:
+        return frozenset(filter(lambda x: isinstance(x, Var), self.terms()))
 
-    def models(self) -> Iterable[FrozenSet[Lit]]:
+    def free_vars(self) -> frozenset[Var]:
+        return self.vars()
+
+    def consts(self) -> frozenset[Const]:
+        return frozenset(filter(lambda x: isinstance(x, Const), self.terms()))
+
+    def preds(self) -> frozenset[Pred]:
+        return frozenset(atom.pred for atom in self.atoms())
+
+    def models(self) -> Iterable[frozenset[AtomicFormula]]:
         """
         Yield all models of the formula
 
-        :rtype Iterable[FrozenSet[Lit]]: models
+        :rtype Iterable[frozenset[Lit]]: models
         """
-        solver, decode = self._solver_for()
-        with solver:
-            if not solver.solve():
-                return
-            for model in solver.enum_models():
-                yield frozenset(
-                    [Lit(decode[abs(num)], num > 0) for num in model]
-                )
+        for model in backend.get_models(self.expr):
+            yield frozenset(
+                backend.get_atom(symbol) if value else ~backend.get_atom(symbol)
+                for symbol, value in model.items()
+            )
+
+    def substitute(self, substitution: dict[Term, Term]) -> QFFormula:
+        atom_substitutions = OrderedDict()
+        for atom in self.atoms():
+            atom_substitutions[atom.expr] = atom.substitute(substitution).expr
+        return QFFormula(backend.substitute(self.expr, atom_substitutions))
+
+    def simplify(self) -> QFFormula:
+        return QFFormula(backend.simplify(self.expr))
 
 
 @dataclass(frozen=True)
-class Exist():
-    quantified_vars: FrozenSet[Var]
+class AtomicFormula(QFFormula):
+    """
+    Atomic formula, i.e. a predicate applied to a tuple of terms.
+    It is a subclass of QFFormula.
+    It actually acts as a literal.
+    """
+    pred: Pred
+    args: tuple[Term]
+    positive: bool
+    expr: backend.Expr = field(init=False, default=None)
+
+    def __post_init__(self):
+        if len(self.args) != self.pred.arity:
+            raise FOLSyntaxError(
+                "Number of terms does not match the predicate's arity")
+        atom = self
+        if not self.positive:
+            atom = ~self
+        expr = backend.get_symbol(atom)
+        expr = expr if self.positive else backend.Not(expr)
+        object.__setattr__(self, 'expr', expr)
+
+    def __invert__(self):
+        return AtomicFormula(self.pred, self.args, not self.positive)
+
+    def make_positive(self):
+        return AtomicFormula(self.pred, self.args, True)
 
     def __str__(self):
-        return 'Exist {}'.format(
-            ','.join(str(v) for v in self.quantified_vars)
-        )
+        s = '{}({})'.format(self.pred,
+                               ','.join([str(arg) for arg in self.args]))
+        return s if self.positive else '~' + s
+
+    def __repr__(self):
+        return str(self)
+
+    def vars(self) -> frozenset[Var]:
+        return frozenset(filter(lambda x: isinstance(x, Var), self.args))
+
+    def consts(self) -> frozenset[Const]:
+        return frozenset(filter(lambda x: isinstance(x, Const), self.args))
+
+    def substitute(self, substitution: dict[Term, Term]) -> AtomicFormula:
+        substituted_args = []
+        for arg in self.args:
+            if arg in substitution:
+                substituted_args.append(substitution[arg])
+            else:
+                substituted_args.append(arg)
+        return AtomicFormula(self.pred, tuple(substituted_args), self.positive)
+
+    def simplify(self) -> QFFormula:
+        return self
+
+
+@dataclass(frozen=True)
+class Bot(QFFormula):
+    expr: backend.Expr = field(init=False, default=None)
+
+    def __and__(self, other: Formula) -> Formula:
+        return self
+
+    def __or__(self, other: Formula) -> Formula:
+        return other
+
+    def __invert__(self) -> QFFormula:
+        return top
+
+    def implies(self, other: Formula) -> Formula:
+        return top
+
+    def equivalent(self, other: Formula) -> Formula:
+        return ~other
+
+    def __str__(self) -> str:
+        return '⊥'
+
+    def preds(self) -> frozenset[Pred]:
+        return frozenset()
+
+
+@dataclass(frozen=True)
+class Top(QFFormula):
+    expr: backend.Expr = field(init=False, default=None)
+
+    def __and__(self, other: Formula) -> Formula:
+        return other
+
+    def __or__(self, other: Formula) -> Formula:
+        return self
+
+    def __invert__(self) -> QFFormula:
+        return bot
+
+    def implies(self, other: Formula) -> Formula:
+        return other
+
+    def equivalent(self, other: Formula) -> Formula:
+        return other
+
+    def __str__(self) -> str:
+        return '⊤'
+
+    def preds(self) -> frozenset[Pred]:
+        return frozenset()
+
+
+@dataclass(frozen=True)
+class Quantifier(object):
+    quantifier: str = field(init=False)
+    quantified_var: Var
+
+    def __str__(self):
+        return '{} {}'.format(self.quantifier, self.quantified_var)
 
     def __repr__(self):
         return str(self)
 
 
 @dataclass(frozen=True)
-class QuantifiedFormula(Formula):
-    cnf: CNF
-    exist: Exist = None
+class Universal(Quantifier):
+    def __post_init__(self):
+        object.__setattr__(self, 'quantifier', '\\forall')
+
+    def complement(self) -> Existential:
+        return Existential(self.quantified_var)
+
+
+@dataclass(frozen=True)
+class Existential(Quantifier):
+    def __post_init__(self):
+        object.__setattr__(self, 'quantifier', '\\exists')
+
+    def complement(self) -> Universal:
+        return Universal(self.quantified_var)
+
+
+@dataclass(frozen=True)
+class Counting(Quantifier):
+    comparator: str
+    count_param: int
 
     def __post_init__(self):
-        object.__setattr__(self, 'symbol', self.cnf.symbol)
+        assert self.comparator in ['='], 'Only equality is supported'
+        object.__setattr__(self, 'quantifier', '\\exists')
 
-    def vars(self) -> FrozenSet[Var]:
-        return self.cnf.vars()
+    def complement(self) -> Counting:
+        raise FOLSyntaxError('Complement of counting quantifier is not supported')
 
-    def ext_uni_vars(self) -> Tuple[FrozenSet[Var], FrozenSet[Var]]:
+    def __str__(self):
+        return '{}_{{{}{}}} {}'.format(
+            self.quantifier, self.comparator,
+            self.count_param, self.quantified_var
+        )
+
+
+class QuantifiedFormula(Formula):
+    """
+    Quantified formula, e.g. \\forall x P(x),
+    \\exists x P(x) and \\exists_{=2} x P(x)
+    """
+    def __init__(self, quantifier_scope: Quantifier, quantified_formula: Formula):
+        self.quantifier_scope = quantifier_scope
+        self.quantified_formula = quantified_formula
+
+    def vars(self) -> frozenset[Var]:
+        return self.quantified_formula.vars()
+
+    @property
+    def quantified_var(self) -> Var:
+        return self.quantifier_scope.quantified_var
+
+    def free_vars(self) -> frozenset[Var]:
+        return self.quantified_formula.free_vars() - frozenset([self.quantified_var])
+
+    def rename(self, substitution: dict[Term, Term]) -> QuantifiedFormula:
+        # filter out the quantified variable
+        substitution = {k: v for k, v in substitution.items() if k in self.free_vars()}
+        inverse_substitution = {v: k for k, v in substitution.items()}
+        if self.quantified_var in inverse_substitution:
+            raise FOLSyntaxError('Subsituting variable {} with {} will cause collision in the formula: {}'.format(
+                inverse_substitution[self.quantified_var],
+                self.quantified_var, self
+            )
+        )
+        quantifier_scope = self.quantifier_scope.rename_quantified_var(
+            substitution.get(self.quantified_var, self.quantified_var)
+        )
+        if isinstance(self.quantified_formula, QFFormula):
+            return QuantifiedFormula(quantifier_scope, self.quantified_formula.substitute(substitution))
+        elif isinstance(self.quantified_formula, QuantifiedFormula):
+            return QuantifiedFormula(quantifier_scope, self.quantified_formula.rename(substitution))
+        else:
+            raise FOLSyntaxError('Compound quantified formula is not supported')
+
+    def consts(self) -> frozenset[Const]:
+        return self.quantified_formula.consts()
+
+    def atoms(self) -> frozenset[AtomicFormula]:
+        return self.quantified_formula.atoms()
+
+    def __invert__(self) -> QuantifiedFormula:
+        # return QuantifiedFormula(self.quantifier_scope.complement(), ~self.formula)
+        if isinstance(self.quantified_formula, QFFormula):
+            return QuantifiedFormula(self.quantifier_scope.complement(), ~self.quantified_formula)
+        return Negation(self)
+
+    def __or__(self, other: Formula) -> Formula:
+        if isinstance(other, QFFormula):
+            return QuantifiedFormula(self.quantifier_scope, self.quantified_formula | other)
+        return Disjunction(self, other)
+
+    def __and__(self, other: Formula) -> Formula:
+        if isinstance(other, QFFormula):
+            return QuantifiedFormula(self.quantifier_scope, self.quantified_formula & other)
+        return Conjunction(self, other)
+
+    def implies(self, other: Formula) -> Formula:
+        return Implication(self, other)
+
+    def equivalent(self, other: Formula) -> Formula:
+        return Equivalence(self, other)
+
+    def ext_uni_vars(self) -> tuple[frozenset[Var], frozenset[Var]]:
         all_vars = self.vars()
         if self.exist is None:
             ext_vars = None
@@ -389,79 +451,127 @@ class QuantifiedFormula(Formula):
             ext_vars = self.exist.quantified_vars
         return (ext_vars, all_vars - ext_vars)
 
-    def consts(self) -> FrozenSet[Const]:
-        return self.cnf.consts()
-
-    def atoms(self) -> FrozenSet[Atom]:
-        return self.cnf.atoms()
-
-    def substitute(self, substitution: Substitution) -> Clause:
-        return QuantifiedFormula(self.cnf.substitute(substitution))
-
-    def preds(self) -> FrozenSet[Pred]:
-        return self.cnf.preds()
+    def preds(self) -> frozenset[Pred]:
+        return self.quantified_formula.preds()
 
     def is_exist(self) -> bool:
         return self.exist is not None
 
     def Equate(self, other: QuantifiedFormula) -> QuantifiedFormula:
-        raise RuntimeError(
+        raise FOLSyntaxError(
             'Not support conjunct two formula'
         )
 
-    @property
-    def clauses(self) -> FrozenSet[DisjunctiveClause]:
-        return self.cnf.clauses
-
-    @classmethod
-    def from_pred(cls, pred: Pred, variables: List[Term]) -> QuantifiedFormula:
-        return cls(CNF.from_pred(pred, variables))
-
-    @classmethod
-    def from_atom(cls, atom: Atom) -> QuantifiedFormula:
-        return cls(CNF.from_atom(atom))
-
-    @classmethod
-    def from_lit(cls, lit: Lit) -> QuantifiedFormula:
-        return cls(CNF.from_lit(lit))
-
     def __str__(self):
-        return '{}{}'.format(
-            str(self.exist) + ' ' if self.exist else '',
-            self.cnf
-        )
+        return '{}: {}'.format(self.quantifier_scope, str(self.quantified_formula))
 
     def __repr__(self):
         return str(self)
 
 
-def AndQuantifiedFormula(*formulas: List[QuantifiedFormula]) -> QuantifiedFormula:
-    for formula in formulas:
-        if formula.is_exist():
-            raise RuntimeError(
-                'Cannot conjunct existentially quantified formula'
-            )
-    return QuantifiedFormula(AndCNF(*[f.cnf for f in formulas]))
+class CompoundFormula(Formula):
+    def __init__(self, op_name: str, op: Callable[..., Formula]):
+        self.op_name: str = op_name
+        self.op: Callable[..., Formula] = op
+
+    def __invert__(self):
+        return Negation(self)
+
+    def __or__(self, other):
+        return Disjunction(self, other)
+
+    def __and__(self, other):
+        return Conjunction(self, other)
+
+    def implies(self, other):
+        return Implication(self, other)
+
+    def equivalent(self, other):
+        return Equivalence(self, other)
 
 
-def AndCNF(*cnfs: List[CNF]) -> CNF:
-    symbols = [cnf.symbol for cnf in cnfs]
-    and_symbols = backend.And(*symbols)
-    cnf = backend.to_cnf(and_symbols)
-    return cnf
+class Negation(CompoundFormula):
+    def __init__(self, formula: Formula) -> None:
+        super().__init__('~', lambda x: ~x)
+        self.sub_formula: Formula = formula
+
+    def __str__(self):
+        return f'~{self.sub_formula}'
+
+    def __repr__(self):
+        return str(self)
+
+    def vars(self) -> frozenset[Var]:
+        return self.sub_formula.vars()
 
 
-def OrCNF(*cnfs: List[CNF]) -> CNF:
-    symbols = [cnf.symbol for cnf in cnfs]
-    or_symbols = backend.Or(*symbols)
-    cnf = backend.to_cnf(or_symbols)
-    return cnf
+class BinaryFormula(CompoundFormula):
+    def __init__(self, op_name: str, op: Callable[[Formula, Formula], Formula],
+                 left: Formula, right: Formula) -> None:
+        super().__init__(op_name, op)
+        self.left_formula: Formula = left
+        self.right_formula: Formula = right
+
+    def __str__(self):
+        return f'({self.left_formula}) {self.op_name} ({self.right_formula})'
+
+    def __repr__(self):
+        return str(self)
+
+    def vars(self) -> frozenset[Var]:
+        return self.left_formula.vars() | self.right_formula.vars()
 
 
-class Substitution(OrderedDict):
-    pass
+class Conjunction(BinaryFormula):
+    def __init__(self, left: Formula, right: Formula) -> None:
+        super().__init__('&', lambda x, y: x & y,
+                         left, right)
 
 
-tautology = CNF(frozenset([ConjunctiveClause(frozenset([]))]))
-x, y, z = Var('x'), Var('y'), Var('z')
+class Disjunction(BinaryFormula):
+    def __init__(self, left: Formula, right: Formula) -> None:
+        super().__init__('|', lambda x, y: x | y,
+                         left, right)
+
+
+class Implication(BinaryFormula):
+    def __init__(self, left: Formula, right: Formula) -> None:
+        super().__init__('->', lambda x, y: x.implies(y),
+                         left, right)
+
+
+class Equivalence(BinaryFormula):
+    def __init__(self, left: Formula, right: Formula) -> None:
+        super().__init__('<->', lambda x, y: x.equivalent(y),
+                         left, right)
+
+
+def pretty_print(formula: Formula) -> None:
+    def get_children(formula: Formula) -> list[Formula]:
+        if isinstance(formula, QFFormula):
+            return []
+        elif isinstance(formula, QuantifiedFormula):
+            return [formula.quantified_formula]
+        elif isinstance(formula, Negation):
+            return [formula.sub_formula]
+        elif isinstance(formula, BinaryFormula):
+            return [formula.left_formula, formula.right_formula]
+
+    def get_value(formula: Formula) -> str:
+        if isinstance(formula, QFFormula):
+            return str(formula)
+        elif isinstance(formula, QuantifiedFormula):
+            return f'{formula.quantifier_scope}:'
+        elif isinstance(formula, Negation):
+            return '~'
+        elif isinstance(formula, BinaryFormula):
+            return formula.op_name
+
+    pt = PrettyPrintTree(get_children, get_value, return_instead_of_print=True)
+    return pt(formula)
+
+
+X, Y, Z = Var('X'), Var('Y'), Var('Z')
+U, V, W = Var('U'), Var('V'), Var('W')
 a, b, c = Const('a'), Const('b'), Const('c')
+top, bot = Top(), Bot()

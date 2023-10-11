@@ -1,15 +1,17 @@
+from __future__ import annotations
+
 import numpy as np
 import cmath
 
 from abc import ABC
-from typing import FrozenSet, List, Tuple
+from typing import Callable
 from logzero import logger
-from itertools import product
-from copy import deepcopy
 from dataclasses import dataclass
 
-from sampling_fo2.fol.syntax import Pred, QuantifiedFormula, x, y
-from sampling_fo2.network.mln import MLN, ComplexMLN
+from sampling_fo2.fol.syntax import Pred
+from sampling_fo2.utils import Rational
+from sampling_fo2.utils.polynomial import coeff_dict, create_vars, Symbol, expand
+from sampling_fo2.utils.third_typing import RingElement
 
 
 class Constraint(ABC):
@@ -27,60 +29,50 @@ class TreeConstraint(Constraint):
         return str(self)
 
 
-@dataclass(frozen=True)
 class CardinalityConstraint(Constraint):
-    pred2card: FrozenSet[Tuple[Pred, int]]
+    def __init__(self, pred2card: dict[Pred, tuple[str, int]]):
+        self.pred2card: dict[Pred, tuple[str, int]] = pred2card
+        self.gen_vars: list[Symbol] = list()
+        self.validator: str = ''
+        validator_list: list[str] = []
+        for _, (comp, card) in self.pred2card.items():
+            if comp == '=':
+                comp = '=='
+            validator_list.append('{{}} {} {}'.format(comp, card))
+        self.validator = ' and '.join(validator_list)
+        logger.info('cardinality validator: %s', self.validator)
 
     def preds(self):
         return list(self.pred2card.keys())
 
-    def valid(self, cards: List[int]):
-        return cards == tuple(self.pred2card.values())
+    def transform_weighting(self, get_weight: Callable[[Pred], tuple[Rational, Rational]]) \
+            -> dict[Pred, tuple[Rational, Rational]]:
+        new_weights: dict[Pred, tuple[RingElement, RingElement]] = {}
+        self.gen_vars = create_vars('x0:{}'.format(
+            len(self.pred2card))
+        )
+        for sym, pred in zip(self.gen_vars, self.pred2card.keys()):
+            weight = get_weight(pred)
+            new_weights[pred] = (weight[0] * sym, weight[1])
+        return new_weights
 
-    def dft(self, mln: MLN) -> Tuple[ComplexMLN, np.ndarray, np.ndarray]:
-        new_formulas = []
-        dft_domain = []
-        top_weights = []
-        M = []
-        for pred in self.preds():
-            cnf = QuantifiedFormula.from_pred(pred, [x, y])
-            new_formulas.append(cnf)
-            D_f = mln.domain_size() ** pred.arity
-            dft_domain.append(range(D_f + 1))
-            M.append(D_f + 1)
+    def decode_poly(self, poly: RingElement) -> RingElement:
+        poly = expand(poly)
+        coeffs = coeff_dict(poly, self.gen_vars)
+        # logger.debug('coeffs: %s', list(coeffs))
+        res = Rational(0, 1)
+        for degrees, coeff in coeffs:
+            if self.valid(degrees):
+                res += coeff
+        return res
 
-        new_weights = [[] for _ in range(len(new_formulas))]
-        M = np.array(M)
-        logger.debug('dft domain: %s', dft_domain)
-        d = np.prod(M)
-        for i in product(*dft_domain):
-            weight_for_constraint_formulas = complex(
-                0, -2 * cmath.pi
-            ) * np.array(i) / M
-            for k, f in enumerate(new_formulas):
-                new_weights[k].append(weight_for_constraint_formulas[k])
-            if not self.valid(i):
-                continue
-            top_w = []
-            for j in product(*dft_domain):
-                top_w.append(cmath.exp(
-                    complex(0, 2 * cmath.pi *
-                            np.dot(np.array(i), np.array(j) / M))
-                ))
-            top_weights.append(top_w)
-        top_weights = np.array(top_weights, dtype=np.complex256)
-        new_weights = [np.array(w, dtype=np.complex256) for w in new_weights]
-        formulas = mln.formulas + new_formulas
-        weights = [
-            np.tile(np.complex256(weight), int(d)) for weight in mln.weights
-        ]
-        weights.extend(new_weights)
-        return ComplexMLN(formulas, weights, deepcopy(mln.domain)), top_weights, d
+    def valid(self, degrees: list[int]) -> bool:
+        return eval(self.validator.format(*degrees))
 
     def __str__(self):
         s = ''
-        for pred, card in self.pred2card:
-            s += '|{}| = {}\n'.format(pred, card)
+        for pred, (op, card) in self.pred2card.items():
+            s += '|{}| {} {} and '.format(pred, op, card)
         return s
 
     def __repr__(self):

@@ -1,15 +1,22 @@
 from __future__ import annotations
-
+from functools import reduce
 
 from collections import defaultdict
-from typing import FrozenSet, List
 
-from .syntax import CNF, Const, DisjunctiveClause, Lit, Pred, \
-    Substitution, Var, QuantifiedFormula, OrCNF, AndCNF
-from .syntax import x, y, z
-
+from .syntax import *
 
 PREDICATES = defaultdict(list)
+
+
+PERMITTED_VAR_NAMES = range(ord('A'), ord('Z') + 1)
+def new_var(exclude: frozenset[Var]) -> Var:
+    for c in PERMITTED_VAR_NAMES:
+        v = Var(chr(c))
+        if v not in exclude:
+            return v
+    raise RuntimeError(
+        "No more variables available"
+    )
 
 
 def new_predicate(arity: int, name: str) -> Pred:
@@ -19,18 +26,21 @@ def new_predicate(arity: int, name: str) -> Pred:
     return p
 
 
-def get_predicates(name: str) -> List[Pred]:
-    global CNT_PREDICATES
+def get_predicates(name: str) -> list[Pred]:
     return PREDICATES[name]
 
 
-def pad_vars(vars: FrozenSet[Var], arity: int) -> FrozenSet[Var]:
+def new_scott_predicate(arity: int) -> Pred:
+    return new_predicate(arity, SCOTT_PREDICATE_PREFIX)
+
+
+def pad_vars(vars: frozenset[Var], arity: int) -> frozenset[Var]:
     if arity > 3:
         raise RuntimeError(
             "Not support arity > 3"
         )
     ret_vars = set(vars)
-    default_vars = [x, y, z]
+    default_vars = [X, Y, Z]
     idx = 0
     while(len(ret_vars) < arity):
         ret_vars.add(default_vars[idx])
@@ -38,36 +48,20 @@ def pad_vars(vars: FrozenSet[Var], arity: int) -> FrozenSet[Var]:
     return frozenset(list(ret_vars)[:arity])
 
 
-def ground_on_tuple(sentence: CNF, c1: Const, c2: Const = None) -> CNF:
-    variables = sentence.vars()
-    if len(variables) > 2 or len(variables) < 1:
-        raise RuntimeError(
-            "Can only ground out FO2"
-        )
-    if len(variables) == 1:
-        constants = [c1]
-    else:
-        if c2 is not None:
-            constants = [c1, c2]
-        else:
-            constants = [c1, c1]
-    substitution = Substitution(zip(variables, constants))
-    gnd_formula = sentence.substitute(substitution)
-    return gnd_formula
-
-
-def exact_one_of(preds: List[Pred]) -> CNF:
+def exactly_one_qf(preds: list[Pred]) -> QFFormula:
     if len(preds) == 1:
-        return None
-    lits = [Lit(p(x)) for p in preds]
+        return top
+    lits = [p(X) for p in preds]
     # p1(x) v p2(x) v ... v pm(x)
-    clauses = [DisjunctiveClause(frozenset(lits))]
+    formula = reduce(lambda x, y: x | y, lits)
     for i, l1 in enumerate(lits):
         for j, l2 in enumerate(lits):
             if i < j:
-                clauses.append(
-                    DisjunctiveClause(
-                        frozenset([l1.negate(), l2.negate()])
-                    )
-                )
-    return CNF(frozenset(clauses))
+                formula = formula & ~(l1 & l2)
+    return formula
+
+
+def exactly_one(preds: list[Pred]) -> QuantifiedFormula:
+    if len(preds) == 1:
+        return top
+    return QuantifiedFormula(Universal(X), exactly_one_qf(preds))

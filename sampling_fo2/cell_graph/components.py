@@ -3,12 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import functools
 
-from typing import FrozenSet, List, Set, Tuple
+from typing import FrozenSet, List, Tuple
 from dataclasses import dataclass, field
 from logzero import logger
 from sympy import Poly
 
-from sampling_fo2.fol.syntax import Lit, Pred, Term, a, b, x
+from sampling_fo2.fol.syntax import AtomicFormula, Pred, Term, a, b, X
 from sampling_fo2.fol.utils import get_predicates
 from sampling_fo2.utils import Rational
 
@@ -28,14 +28,14 @@ class Cell(object):
         object.__setattr__(self, '_identifier',
                            frozenset(zip(self.preds, self.code)))
 
-    def get_evidences(self, term: Term) -> FrozenSet[Lit]:
-        evidences = set()
+    def get_evidences(self, term: Term) -> FrozenSet[AtomicFormula]:
+        evidences: set[AtomicFormula] = set()
         for i, p in enumerate(self.preds):
             atom = p(*([term] * p.arity))
             if (self.code[i]):
-                evidences.add(Lit(atom))
+                evidences.add(atom)
             else:
-                evidences.add(Lit(atom, False))
+                evidences.add(~atom)
         return frozenset(evidences)
 
     @functools.lru_cache(maxsize=None)
@@ -70,14 +70,17 @@ class Cell(object):
         return Cell(tuple(new_code), tuple(new_preds))
 
     def __str__(self):
-        evidences: Set[Lit] = self.get_evidences(x)
-        return '^'.join(str(lit) for lit in evidences)
+        evidences: frozenset[AtomicFormula] = self.get_evidences(X)
+        # evidences = filter(lambda x: x.pred.name.startswith('skolem') or x.pred.name.startswith('aux') or x.pred.name == 'E', evidences)
+        lits = [str(lit) for lit in evidences]
+        lits.sort()
+        return '^'.join(lits)
 
     def __repr__(self):
         return self.__str__()
 
 
-class BtypeTable(object):
+class TwoTable(object):
     def __init__(self, model_table: pd.DataFrame, cell_1: Cell, cell_2: Cell):
         """
         The table containing the weight of all B-types.
@@ -87,28 +90,29 @@ class BtypeTable(object):
         self.cell_1: Cell = cell_1
         self.cell_2: Cell = cell_2
 
-        self.evidences: FrozenSet[Lit] = frozenset(
+        self.evidences: FrozenSet[AtomicFormula] = frozenset(
             self.cell_1.get_evidences(a).union(
                 self.cell_2.get_evidences(b)
             )
         )
         self.model_table = self._conditional_on(self.evidences)
 
-    def _conditional_on(self, evidences: FrozenSet[Lit] = None) -> pd.DataFrame:
+    def _conditional_on(self, evidences: FrozenSet[AtomicFormula] = None) -> pd.DataFrame:
         if evidences is None:
             return self.model_table
         table = self.model_table
         for e in evidences:
-            if e.atom in table.columns:
+            atom = e.make_positive()
+            if atom in table.columns:
                 if e.positive:
-                    table = table[table[e.atom]]
+                    table = table[table[atom]]
                 else:
-                    table = table[~table[e.atom]]
+                    table = table[~table[atom]]
                 if table.empty:
                     return table
         return table
 
-    def get_weight(self, evidences: FrozenSet[Lit] = None) -> Poly:
+    def get_weight(self, evidences: FrozenSet[AtomicFormula] = None) -> Poly:
         if not self.satisfiable(evidences):
             return Rational(0, 1)
         table = self._conditional_on(evidences)
@@ -117,29 +121,30 @@ class BtypeTable(object):
             table.weight
         )
 
-    def get_btypes(self, evidences: FrozenSet[Lit] = None) -> Tuple[FrozenSet[Lit], Poly]:
-        btypes = []
+    def get_two_tables(self, evidences: FrozenSet[AtomicFormula] = None) \
+            -> Tuple[FrozenSet[AtomicFormula], Poly]:
+        two_tables = []
         df = self._conditional_on(evidences)
         if len(df) == 0:
             logger.warning(
                 'Cell pair (%s, %s) with evidences %s is not satisfiable',
                 self.cell_1, self.cell_2, evidences
             )
-            return btypes
+            return two_table
         for r in df.iterrows():
-            btype = set()
+            two_table = set()
             for k, v in r[1].items():
                 if k == 'weight':
                     weight = v
                 else:
                     if v:
-                        btype.add(Lit(k))
+                        two_table.add(k)
                     else:
-                        btype.add(Lit(k, False))
-            btypes.append((frozenset(btype), weight))
-        return btypes
+                        two_table.add(~k)
+            two_tables.append((frozenset(two_table), weight))
+        return two_tables
 
-    def satisfiable(self, evidences: FrozenSet[Lit] = None) -> bool:
+    def satisfiable(self, evidences: FrozenSet[AtomicFormula] = None) -> bool:
         table = self._conditional_on(evidences)
         if table.empty:
             return False
