@@ -6,7 +6,7 @@ This tool is for sampling instances or combinatorical structures from the two-va
 
 ## Input format
 
-1. First-order sentence with at most two logic variables, see [sampling_fo2/parser/fol_grammer.py](fol_grammar.py) for details, e.g.,
+1. First-order sentence with at most two logic variables, see [fol_grammer.py](sampling_fo2/parser/fol_grammer.py) for details, e.g.,
   * `\forall X: (\forall Y: (R(X, Y) <-> Z(X, Y)))`
   * `\forall X: (\exists Y: (R(X, Y)))`
   * `\exists X: (F(X) -> \forall Y: (R(X, Y)))`
@@ -87,3 +87,21 @@ $ python sampling_fo2/sampler.py -h
 ```
 
 ## References
+
+```
+@inproceedings{DBLP:conf/lics/WangP0K23,
+  author       = {Yuanhong Wang and
+                  Juhua Pu and
+                  Yuyi Wang and
+                  Ondrej Kuzelka},
+  title        = {On Exact Sampling in the Two-Variable Fragment of First-Order Logic},
+  booktitle    = {{LICS}},
+  pages        = {1--13},
+  year         = {2023},
+  url          = {https://doi.org/10.1109/LICS56636.2023.10175742},
+  doi          = {10.1109/LICS56636.2023.10175742},
+  timestamp    = {Thu, 20 Jul 2023 11:32:59 +0200},
+  biburl       = {https://dblp.org/rec/conf/lics/WangP0K23.bib},
+  bibsource    = {dblp computer science bibliography, https://dblp.org}
+}
+```
