@@ -95,8 +95,22 @@ def parse(text: str) -> \
     wfomcs_parser = Lark(grammar,
                         start='wfomcs')
     tree = wfomcs_parser.parse(text)
-    wfomcs = WFOMSTransformer().transform(tree)
-    return WFOMCSProblem(*wfomcs)
+    (
+        sentence,
+        domain,
+        weightings,
+        cardinality_constraint
+    ) = WFOMSTransformer().transform(tree)
+    pred_weightings = dict(
+        (sentence.pred_by_name(pred), weights)
+        for pred, weights in weightings.items()
+    )
+    return WFOMCSProblem(
+        sentence,
+        domain,
+        pred_weightings,
+        cardinality_constraint
+    )
 
 
 if __name__ == '__main__':
