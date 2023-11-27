@@ -9,4 +9,4 @@ pandas==1.5.0
 pysat==3.0.1
 tqdm==4.64.0
 dataclasses==0.8
-PrettyPrint==0.1.5
+PrettyPrintTree
