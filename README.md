@@ -66,13 +66,9 @@ More examples are in [models](models/)
 
 
 ### Installation
-Install requirements:
+Install the package:
 ```
-$ pip install -r requirements.txt
-```
-Add path to your PYTHONPATH:
-```
-$ export PYTHONPATH=$(pwd)/sampling_fo2:$PYTHONPATH
+$ pip install -e .
 ```
 
 
