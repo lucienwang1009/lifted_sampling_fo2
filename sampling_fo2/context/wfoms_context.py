@@ -24,7 +24,7 @@ class WFOMSContext(object):
         self.weights: dict[Pred, tuple[Rational, Rational]] = problem.weights
         self.cardinality_constraint: CardinalityConstraint = problem.cardinality_constraint
 
-        if self.cardinality_constraint == None: 
+        if self.cardinality_constraint == None:
             self.cardinality_constraint = CardinalityConstraint({})
 
         logger.info('sentence: \n%s', self.sentence)
@@ -66,7 +66,8 @@ class WFOMSContext(object):
         return self.cardinality_constraint is not None
 
     def contain_existential_quantifier(self) -> bool:
-        return self.sentence.contain_existential_quantifier()
+        return self.sentence.contain_existential_quantifier() or \
+            self.sentence.contain_counting_quantifier()
 
     def get_weight(self, pred: Pred) -> tuple[RingElement, RingElement]:
         default = Rational(1, 1)
@@ -127,7 +128,7 @@ class WFOMSContext(object):
                 self.ext_formulas = self.ext_formulas + ext_formulas
                 self.cardinality_constraint.add(*cardinality_constraint)
         self.cardinality_constraint.build()
-        
+
         self.uni_formula = self.formula
         for ext_formula in self.ext_formulas:
             self._skolemize_one_formula(ext_formula)
