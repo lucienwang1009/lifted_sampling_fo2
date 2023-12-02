@@ -30,6 +30,11 @@ __all__ = [
     'Negation',
     'BinaryFormula',
     'SCOTT_PREDICATE_PREFIX',
+    'AUXILIARY_PRED_NAME',
+    'TSEITIN_PRED_NAME',
+    'SKOLEM_PRED_NAME',
+    'EVIDOM_PRED_NAME',
+    'PREDS_FOR_EXISTENTIAL',
     'pretty_print',
     'X', 'Y', 'Z',
     'U', 'V', 'W',
@@ -49,10 +54,25 @@ class Term(object):
 
 
 SCOTT_PREDICATE_PREFIX = 'scott'
+
+AUXILIARY_PRED_NAME = '@aux'
+
+TSEITIN_PRED_NAME = 'tseitin'
+SKOLEM_PRED_NAME = 'skolem'
+EVIDOM_PRED_NAME = 'evidom'
+PREDS_FOR_EXISTENTIAL = [
+    TSEITIN_PRED_NAME, SKOLEM_PRED_NAME, EVIDOM_PRED_NAME
+]
+
+
 RESERVED_PRED_NAMES: tuple[str] = (
     'true',
     'false',
-    SCOTT_PREDICATE_PREFIX
+    SCOTT_PREDICATE_PREFIX,
+    AUXILIARY_PRED_NAME,
+    TSEITIN_PRED_NAME,
+    SKOLEM_PRED_NAME,
+    EVIDOM_PRED_NAME
 )
 
 RESERVED_VAR_NAMES: tuple[str] = (

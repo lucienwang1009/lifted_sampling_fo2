@@ -13,12 +13,12 @@ from contexttimer import Timer
 
 from sampling_fo2.cell_graph.cell_graph import OptimizedCellGraph
 
-from sampling_fo2.utils import PREDS_FOR_EXISTENTIAL, MultinomialCoefficients, multinomial, \
+from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
     multinomial_less_than, RingElement, Rational, round_rational
 from sampling_fo2.cell_graph import CellGraph, Cell
 from sampling_fo2.context import WFOMCContext
 from sampling_fo2.parser import parse_input
-from sampling_fo2.fol.syntax import Const, Pred, QFFormula
+from sampling_fo2.fol.syntax import Const, Pred, QFFormula, PREDS_FOR_EXISTENTIAL
 from sampling_fo2.utils.polynomial import coeff_dict, create_vars, expand
 
 
@@ -202,7 +202,9 @@ def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
         res = faster_wfomc(
             context.formula, context.domain, context.get_weight
         )
-    return context.decode_result(res)
+    res = context.decode_result(res)
+    res /= context.repeat_factor
+    return res
 
 
 def count_distribution(context: WFOMCContext, preds: list[Pred],

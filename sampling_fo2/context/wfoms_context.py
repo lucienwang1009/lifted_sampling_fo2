@@ -2,14 +2,14 @@ from __future__ import annotations
 from itertools import product
 from logzero import logger
 from sampling_fo2.context.existential_context import BlockType, ExistentialTwoTable
-from sampling_fo2.fol.syntax import top, a, b
+from sampling_fo2.fol.syntax import top
 from sampling_fo2.fol.sc2 import SC2
-from sampling_fo2.fol.utils import exactly_one, exactly_one_qf, new_predicate, \
+from sampling_fo2.fol.utils import exactly_one_qf, new_predicate, \
     sc2_to_snf_with_cardinalit_constraints
 
 from sampling_fo2.network.constraint import CardinalityConstraint
 from sampling_fo2.fol.syntax import *
-from sampling_fo2.utils import AUXILIARY_PRED_NAME, EVIDOM_PRED_NAME, SKOLEM_PRED_NAME, Rational
+from sampling_fo2.utils import Rational
 from sampling_fo2.utils.third_typing import RingElement
 
 
@@ -23,9 +23,6 @@ class WFOMSContext(object):
         self.sentence: SC2 = problem.sentence
         self.weights: dict[Pred, tuple[Rational, Rational]] = problem.weights
         self.cardinality_constraint: CardinalityConstraint = problem.cardinality_constraint
-
-        if self.cardinality_constraint == None:
-            self.cardinality_constraint = CardinalityConstraint({})
 
         logger.info('sentence: \n%s', self.sentence)
         logger.info('domain: \n%s', self.domain)
@@ -121,13 +118,17 @@ class WFOMSContext(object):
         self.ext_formulas = self.sentence.ext_formulas
         if self.sentence.contain_counting_quantifier():
             logger.info('translate SC2 to SNF')
+            if self.cardinality_constraint is None:
+                self.cardinality_constraint = CardinalityConstraint({})
             for cnt_formula in self.sentence.cnt_formulas:
-                uni_formula, ext_formulas, cardinality_constraint = \
+                uni_formula, ext_formulas, cardinality_constraint, _ = \
                     sc2_to_snf_with_cardinalit_constraints(cnt_formula, self.domain)
                 self.formula = self.formula & uni_formula
                 self.ext_formulas = self.ext_formulas + ext_formulas
                 self.cardinality_constraint.add(*cardinality_constraint)
-        self.cardinality_constraint.build()
+        
+        if self.cardinality_constraint is not None:
+            self.cardinality_constraint.build()
 
         self.uni_formula = self.formula
         for ext_formula in self.ext_formulas:

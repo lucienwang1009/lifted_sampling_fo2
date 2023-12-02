@@ -4,7 +4,7 @@ from sampling_fo2.fol.sc2 import to_sc2
 from sampling_fo2.fol.syntax import Existential
 from sampling_fo2.fol.utils import exactly_one
 
-from sampling_fo2.parser.fol_grammer import function_free_logic_grammar
+from sampling_fo2.parser.fol_grammar import function_free_logic_grammar
 from sampling_fo2.fol.syntax import *
 
 

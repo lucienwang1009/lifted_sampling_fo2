@@ -6,7 +6,7 @@ This tool is for sampling instances or combinatorical structures from the two-va
 
 ## Input format
 
-1. First-order sentence with at most two logic variables, see [fol_grammer.py](sampling_fo2/parser/fol_grammer.py) for details, e.g.,
+1. First-order sentence with at most two logic variables, see [fol_grammar.py](sampling_fo2/parser/fol_grammar.py) for details, e.g.,
   * `\forall X: (\forall Y: (R(X, Y) <-> Z(X, Y)))`
   * `\forall X: (\exists Y: (R(X, Y)))`
   * `\exists X: (F(X) -> \forall Y: (R(X, Y)))`
@@ -49,7 +49,17 @@ V = 10
 V = 6
 |E| = 12
 ```
-> Note: You need to convert SC2 sentence into FO2 sentence with cardinality constraints by yourself.
+
+> Note: You can also directly input the SC2 sentence
+
+2 regular graphs (sc2):
+```
+\forall X: (~E(X,X)) &
+\forall X: (\forall Y: (E(X,Y) -> E(Y,X))) &
+\forall X: (\exists_{=2} Y: (E(X,Y)))
+
+V = 6
+```
 
 Sampling possible worlds from `friends-smokes` MLN:
 ```
@@ -61,6 +71,16 @@ Sampling possible worlds from `friends-smokes` MLN:
 person = 10
 2.7 1 aux
 ```
+
+> Note: You can also directly input the MLN in the form defined in [mln_grammar.py](sampling_fo2/parser/mln_grammar.py)
+```
+~friends(X,X).
+friends(X,Y) -> friends(Y,X).
+2.7 friends(X,Y) & smokes(X) -> smokes(Y)
+
+person = 10
+```
+
 
 More examples are in [models](models/)
 
