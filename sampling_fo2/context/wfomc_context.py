@@ -6,7 +6,7 @@ from sampling_fo2.fol.utils import new_predicate, sc2_to_snf_with_cardinalit_con
 from sampling_fo2.network.constraint import CardinalityConstraint
 from sampling_fo2.fol.syntax import *
 from sampling_fo2.problems import WFOMCSProblem
-from sampling_fo2.utils import AUXILIARY_PRED_NAME, SKOLEM_PRED_NAME, Rational
+from sampling_fo2.utils import Rational
 from sampling_fo2.utils.third_typing import RingElement
 
 
@@ -20,6 +20,7 @@ class WFOMCContext(object):
         self.sentence: SC2 = problem.sentence
         self.weights: dict[Pred, tuple[Rational, Rational]] = problem.weights
         self.cardinality_constraint: CardinalityConstraint = problem.cardinality_constraint
+        self.repeat_factor = 1
 
         if self.cardinality_constraint == None: 
             self.cardinality_constraint = CardinalityConstraint({})
@@ -101,11 +102,12 @@ class WFOMCContext(object):
         if self.sentence.contain_counting_quantifier():
             logger.info('translate SC2 to SNF')
             for cnt_formula in self.sentence.cnt_formulas:
-                uni_formula, ext_formulas, cardinality_constraint = \
+                uni_formula, ext_formulas, cardinality_constraint, repeat_factor = \
                     sc2_to_snf_with_cardinalit_constraints(cnt_formula, self.domain)
                 self.formula = self.formula & uni_formula
                 self.ext_formulas = self.ext_formulas + ext_formulas
                 self.cardinality_constraint.add(*cardinality_constraint)
+                self.repeat_factor *= repeat_factor
         self.cardinality_constraint.build()
         
         for ext_formula in self.ext_formulas:

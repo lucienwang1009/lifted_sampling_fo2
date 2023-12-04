@@ -16,10 +16,10 @@ from collections import defaultdict
 from sampling_fo2.context import WFOMSContext
 from sampling_fo2.context.existential_context import \
     BlockType, ExistentialContext, ExistentialTwoTable
-from sampling_fo2.fol.syntax import AtomicFormula, Const, a, b
+from sampling_fo2.fol.syntax import AtomicFormula, Const, a, b, \
+    AUXILIARY_PRED_NAME, PREDS_FOR_EXISTENTIAL
 from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
-    Rational, RingElement, coeff_monomial, round_rational, \
-    PREDS_FOR_EXISTENTIAL, expand
+    Rational, RingElement, coeff_monomial, round_rational, expand
 from sampling_fo2.parser import parse_input
 from sampling_fo2.cell_graph import Cell, CellGraph
 from sampling_fo2.utils.polynomial import choices
@@ -394,10 +394,9 @@ class Sampler(object):
         return self._remove_aux_atoms(sampled_atoms)
 
     def _remove_aux_atoms(self, atoms):
-        # only return atoms with the predicate in the original MLN
-        preds = self.context.sentence.preds()
+        # only return atoms with the predicate in the original input
         return set(
-            filter(lambda atom: atom.pred in preds, atoms)
+            filter(lambda atom: not atom.pred.name.startswith(AUXILIARY_PRED_NAME), atoms)
         )
 
     def _replace_consts(self, term, replacement):
