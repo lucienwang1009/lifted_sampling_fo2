@@ -64,20 +64,20 @@ def exactly_one(preds: list[Pred]) -> QuantifiedFormula:
         return top
     return QuantifiedFormula(Universal(X), exactly_one_qf(preds))
 
-def sc2_to_snf_with_cardinalit_constraints(formula: QuantifiedFormula, domain: set[Const]):
+def convert_counting_formula(formula: QuantifiedFormula, domain: set[Const]):
     """
     Only need to deal with \forall X \exists_{=k} Y: f(X,Y)
     """
     uni_formula = top
     ext_formulas = []
-    
+
     cnt_quantified_formula = formula.quantified_formula.quantified_formula
     cnt_quantifier = formula.quantified_formula.quantifier_scope
     count_param = cnt_quantifier.count_param
-    
+
     repeat_factor = (math.factorial(count_param)) ** len(domain)
-        
-    # Follow the steps in "A Complexity Upper Bound for 
+
+    # Follow the steps in "A Complexity Upper Bound for
     # Some Weighted First-Order Model Counting Problems With Counting Quantifiers"
     # (2)
     aux_pred = new_predicate(2, AUXILIARY_PRED_NAME)
@@ -90,8 +90,8 @@ def sc2_to_snf_with_cardinalit_constraints(formula: QuantifiedFormula, domain: s
         aux_atom_i = aux_pred_i(X, Y)
         sub_aux_preds.append(aux_pred_i)
         sub_aux_atoms.append(aux_atom_i)
-        sub_ext_formula = QuantifiedFormula(Existential(Y), aux_atom_i) 
-        sub_ext_formula = QuantifiedFormula(Universal(X), sub_ext_formula)   
+        sub_ext_formula = QuantifiedFormula(Existential(Y), aux_atom_i)
+        sub_ext_formula = QuantifiedFormula(Universal(X), sub_ext_formula)
         ext_formulas.append(sub_ext_formula)
     # (4)
     for i in range(count_param):
@@ -104,5 +104,5 @@ def sc2_to_snf_with_cardinalit_constraints(formula: QuantifiedFormula, domain: s
     uni_formula = uni_formula & or_sub_aux_atoms.equivalent(aux_atom)
     # (6)
     cardinality_constraint = (aux_pred, ('=', len(domain) * count_param))
-    
+
     return uni_formula, ext_formulas, cardinality_constraint, repeat_factor

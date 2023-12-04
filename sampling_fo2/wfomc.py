@@ -203,7 +203,6 @@ def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
             context.formula, context.domain, context.get_weight
         )
     res = context.decode_result(res)
-    res /= context.repeat_factor
     return res
 
 

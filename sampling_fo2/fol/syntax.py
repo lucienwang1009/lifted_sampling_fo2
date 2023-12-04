@@ -53,13 +53,11 @@ class Term(object):
     name: str
 
 
-SCOTT_PREDICATE_PREFIX = 'scott'
-
+SCOTT_PREDICATE_PREFIX = '@scott'
 AUXILIARY_PRED_NAME = '@aux'
-
-TSEITIN_PRED_NAME = 'tseitin'
-SKOLEM_PRED_NAME = 'skolem'
-EVIDOM_PRED_NAME = 'evidom'
+TSEITIN_PRED_NAME = '@tseitin'
+SKOLEM_PRED_NAME = '@skolem'
+EVIDOM_PRED_NAME = '@evidom'
 PREDS_FOR_EXISTENTIAL = [
     TSEITIN_PRED_NAME, SKOLEM_PRED_NAME, EVIDOM_PRED_NAME
 ]
@@ -448,12 +446,17 @@ class QuantifiedFormula(Formula):
         return Negation(self)
 
     def __or__(self, other: Formula) -> Formula:
-        if isinstance(other, QFFormula):
+        # NOTE: (\exists_{=k} R(x,y)) | Q(x) and \exists_{=k} (R(x,y) | Q(x)) are not equivalent!!!
+        if isinstance(other, QFFormula) and \
+                self.quantified_var not in other.vars() and \
+                not isinstance(self.quantifier_scope, Counting):
             return QuantifiedFormula(self.quantifier_scope, self.quantified_formula | other)
         return Disjunction(self, other)
 
     def __and__(self, other: Formula) -> Formula:
-        if isinstance(other, QFFormula):
+        if isinstance(other, QFFormula) and \
+                self.quantified_var not in other.vars() and \
+                not isinstance(self.quantifier_scope, Counting):
             return QuantifiedFormula(self.quantifier_scope, self.quantified_formula & other)
         return Conjunction(self, other)
 

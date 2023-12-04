@@ -465,7 +465,7 @@ def parse_args():
                         help='mln file')
     parser.add_argument('--n_samples', '-k', type=int, required=True)
     parser.add_argument('--output_dir', '-o', type=str,
-                        default='./check-points')
+                        default='./outputs')
     parser.add_argument('--show_samples', '-s',
                         action='store_true', default=False)
     parser.add_argument('--debug', '-d', action='store_true', default=False)

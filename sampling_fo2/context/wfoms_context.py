@@ -5,7 +5,7 @@ from sampling_fo2.context.existential_context import BlockType, ExistentialTwoTa
 from sampling_fo2.fol.syntax import top
 from sampling_fo2.fol.sc2 import SC2
 from sampling_fo2.fol.utils import exactly_one_qf, new_predicate, \
-    sc2_to_snf_with_cardinalit_constraints
+    convert_counting_formula
 
 from sampling_fo2.network.constraint import CardinalityConstraint
 from sampling_fo2.fol.syntax import *
@@ -118,16 +118,16 @@ class WFOMSContext(object):
         self.ext_formulas = self.sentence.ext_formulas
         if self.sentence.contain_counting_quantifier():
             logger.info('translate SC2 to SNF')
-            if self.cardinality_constraint is None:
-                self.cardinality_constraint = CardinalityConstraint({})
+            if not self.contain_cardinality_constraint():
+                self.cardinality_constraint = CardinalityConstraint()
             for cnt_formula in self.sentence.cnt_formulas:
                 uni_formula, ext_formulas, cardinality_constraint, _ = \
-                    sc2_to_snf_with_cardinalit_constraints(cnt_formula, self.domain)
+                    convert_counting_formula(cnt_formula, self.domain)
                 self.formula = self.formula & uni_formula
                 self.ext_formulas = self.ext_formulas + ext_formulas
                 self.cardinality_constraint.add(*cardinality_constraint)
-        
-        if self.cardinality_constraint is not None:
+
+        if self.contain_cardinality_constraint():
             self.cardinality_constraint.build()
 
         self.uni_formula = self.formula
