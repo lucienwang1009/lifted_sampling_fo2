@@ -406,8 +406,9 @@ def to_sc2(formula: Formula) -> SC2:
         formula, 0, [X, Y, Z], {}
     )
     logger.debug("After rename variables: \n%s", pretty_print(formula))
-    formula = pop_quantifier(formula)
-    logger.debug("After pop quantifier: \n%s", pretty_print(formula))
+    # TODO: disable due to https://github.com/lucienwang1009/lifted_sampling_fo2/issues/8
+    # formula = pop_quantifier(formula)
+    # logger.debug("After pop quantifier: \n%s", pretty_print(formula))
     # here, the formula must only contain conjunctions
     bfs(formula, check_all_conjunction)
 
