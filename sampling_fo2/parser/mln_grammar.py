@@ -20,7 +20,7 @@ rule_grammar = r"""
     rule: hard_rule | soft_rule
     hard_rule: ffl "."
     soft_rule: weighting ffl
-    weighting: FLOAT | INT
+    weighting: SIGNED_NUMBER
 """ + function_free_logic_grammar
 
 grammar = r"""

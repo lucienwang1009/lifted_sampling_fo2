@@ -50,7 +50,7 @@ V = 6
 |E| = 12
 ```
 
-> Note: You can also directly input the SC2 sentence
+> **Note: You can also directly input the SC2 sentence**
 
 2 regular graphs (sc2):
 ```
@@ -72,11 +72,14 @@ person = 10
 2.7 1 aux
 ```
 
-> Note: You can also directly input the MLN in the form defined in [mln_grammar.py](sampling_fo2/parser/mln_grammar.py)
+> **Note: You can also directly input the MLN in the form defined in [mln_grammar.py](sampling_fo2/parser/mln_grammar.py)**
 ```
 ~friends(X,X).
 friends(X,Y) -> friends(Y,X).
 2.7 friends(X,Y) & smokes(X) -> smokes(Y)
+\forall X: (\existes Y: (fr(X,Y))).
+# or 
+\exists Y: (fr(X,Y)).
 
 person = 10
 ```
@@ -95,11 +98,19 @@ $ pip install -e .
 ### How to use
 Run the following command:
 ```
-$ python sampling_fo2/sampler.py -i models/friendsmoker.mln -k 10 -s
+$ python sampling_fo2/sampler.py -i [input] -k [N] -s
 ```
 Find more arguments: 
 ```
 $ python sampling_fo2/sampler.py -h
+```
+
+## Bonus
+
+This repo also contains the code for WFOMC (the counting counterpart problem of first-order model sampling).
+Just run:
+```
+$ python sampling_fo2/wfomc.py -i [input]
 ```
 
 ## References

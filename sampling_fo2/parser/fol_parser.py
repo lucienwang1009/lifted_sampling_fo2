@@ -18,6 +18,10 @@ Quantifiers = {
 
 class FOLTransformer(Transformer):
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.name2pred = {}
+
     def constant(self, args):
         return Const(args[0].value)
 
@@ -35,6 +39,7 @@ class FOLTransformer(Transformer):
         if terms is None:
             terms = []
         pred = Pred(pred_name, len(terms))
+        self.name2pred[pred_name] = pred
         return pred(*terms)
 
     def parenthesis(self, args):

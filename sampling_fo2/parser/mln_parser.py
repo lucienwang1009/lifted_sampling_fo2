@@ -48,7 +48,7 @@ class MLNTransformer(FOLTransformer):
 
     def weighting(self, args):
         return float(args[0])
-        
+
     def rules(self, args):
         rules = args
         weightings = []
@@ -61,10 +61,10 @@ class MLNTransformer(FOLTransformer):
     def rule(self, args):
         w, r = args[0]
         return w, r
-    
+
     def hard_rule(self, args):
         return float('inf'), args[0]
-        
+
     def soft_rule(self, args):
         return args[0], args[1]
 
@@ -72,15 +72,18 @@ class MLNTransformer(FOLTransformer):
         rules = args[0]
         domain = args[1][1] # Only one definition domain is supported
         cardinalities = args[2]
-        
+
         cc_constraints: dict[Pred, tuple[str, int]] = dict()
         if cardinalities is not None:
             for pred, op, param in cardinalities:
+                pred = self.name2pred.get(pred, None)
+                if not pred:
+                    raise ValueError(f'Predicate {pred} not found')
                 cc_constraints[pred] = (op, param)
             cardinality_constraint = CardinalityConstraint(cc_constraints)
         else:
             cardinality_constraint = None
-        
+
         return rules, domain, cardinality_constraint
 
 def parse(text: str) -> MLNProblem:
@@ -88,7 +91,7 @@ def parse(text: str) -> MLNProblem:
                         start='mln')
     tree = mln_parser.parse(text)
     (rules, domain, cardinality_constraint) = MLNTransformer().transform(tree)
-    
+
     return MLNProblem(
         rules,
         domain,
