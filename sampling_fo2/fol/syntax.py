@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+import functools
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 from collections import OrderedDict
@@ -260,9 +260,11 @@ class AtomicFormula(QFFormula):
         expr = expr if self.positive else backend.Not(expr)
         object.__setattr__(self, 'expr', expr)
 
+    @functools.lru_cache(maxsize=None)
     def __invert__(self):
         return AtomicFormula(self.pred, self.args, not self.positive)
 
+    @functools.lru_cache(maxsize=None)
     def make_positive(self):
         return AtomicFormula(self.pred, self.args, True)
 
