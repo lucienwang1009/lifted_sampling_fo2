@@ -132,3 +132,25 @@ $ python sampling_fo2/wfomc.py -i [input]
   bibsource    = {dblp computer science bibliography, https://dblp.org}
 }
 ```
+If you use the WFOMC code, please cite
+```
+@inproceedings{DBLP:conf/uai/BremenK21,
+  author       = {Timothy van Bremen and
+                  Ondrej Kuzelka},
+  editor       = {Cassio P. de Campos and
+                  Marloes H. Maathuis and
+                  Erik Quaeghebeur},
+  title        = {Faster lifting for two-variable logic using cell graphs},
+  booktitle    = {Proceedings of the Thirty-Seventh Conference on Uncertainty in Artificial
+                  Intelligence, {UAI} 2021, Virtual Event, 27-30 July 2021},
+  series       = {Proceedings of Machine Learning Research},
+  volume       = {161},
+  pages        = {1393--1402},
+  publisher    = {{AUAI} Press},
+  year         = {2021},
+  url          = {https://proceedings.mlr.press/v161/bremen21a.html},
+  timestamp    = {Fri, 17 Dec 2021 17:06:27 +0100},
+  biburl       = {https://dblp.org/rec/conf/uai/BremenK21.bib},
+  bibsource    = {dblp computer science bibliography, https://dblp.org}
+}
+```
