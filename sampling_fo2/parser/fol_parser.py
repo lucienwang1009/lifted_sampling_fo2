@@ -100,6 +100,9 @@ class FOLTransformer(Transformer):
     def exactlyone(self, args):
         predicates = args[1]
         predicates = [Pred(p, 1) for p in predicates]
+        self.name2pred.update(
+            (p.name, p) for p in predicates
+        )
         return exactly_one(predicates)
 
     def predicates(self, args):
