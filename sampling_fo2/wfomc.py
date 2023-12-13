@@ -25,6 +25,7 @@ from sampling_fo2.utils.polynomial import coeff_dict, create_vars, expand
 class Algo(Enum):
     STANDARD = 'standard'
     FASTER = 'faster'
+    FASTERv2 = 'fasterv2'
 
     def __str__(self):
         return self.value
@@ -80,10 +81,11 @@ def get_config_weight_standard(cell_graph: CellGraph,
 
 def faster_wfomc(formula: QFFormula,
                domain: set[Const],
-               get_weight: Callable[[Pred], tuple[RingElement, RingElement]]) -> RingElement:
+               get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
+               modified_cell_sysmmetry: bool = False) -> RingElement:
     domain_size = len(domain)
     with Timer() as t:
-        opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size)
+        opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size, modified_cell_sysmmetry)
     logger.info('Optimized cell graph construction time: %s', t.elapsed)
 
     cliques = opt_cell_graph.cliques
@@ -113,9 +115,10 @@ def faster_wfomc(formula: QFFormula,
                 body = body * opt_cell_graph.get_J_term(
                     l, partition[nonind_map[l]]
                 )
-                body = body * opt_cell_graph.get_cell_weight(
-                    cliques[l][0]
-                ) ** partition[nonind_map[l]]
+                if not modified_cell_sysmmetry:
+                    body = body * opt_cell_graph.get_cell_weight(
+                        cliques[l][0]
+                    ) ** partition[nonind_map[l]]
 
             opt_cell_graph.setup_term_cache()
             mul = opt_cell_graph.get_term(len(i2_ind), 0, partition)
@@ -123,7 +126,6 @@ def faster_wfomc(formula: QFFormula,
     logger.info('WFOMC time: %s', t.elapsed)
 
     return res
-
 
 def standard_wfomc(formula: QFFormula,
                    domain: set[Const],
@@ -201,6 +203,10 @@ def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
     elif algo == Algo.FASTER:
         res = faster_wfomc(
             context.formula, context.domain, context.get_weight
+        )
+    elif algo == Algo.FASTERv2:
+        res = faster_wfomc(
+            context.formula, context.domain, context.get_weight, True
         )
     res = context.decode_result(res)
     return res

@@ -235,7 +235,8 @@ class CellGraph(object):
 class OptimizedCellGraph(CellGraph):
     def __init__(self, formula: QFFormula,
                  get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
-                 domain_size: int):
+                 domain_size: int,
+                 modified_cell_symmetry: bool = False):
         """
         Optimized cell graph for FastWFOMC
         :param formula: the formula to be grounded
@@ -243,6 +244,7 @@ class OptimizedCellGraph(CellGraph):
         :param domain_size: the domain size
         """
         super().__init__(formula, get_weight)
+        self.modified_cell_symmetry = modified_cell_symmetry
         self.domain_size: int = domain_size
         self.cliques: list[list[Cell]] = self.build_symmetric_cliques()
         MultinomialCoefficients.setup(self.domain_size)
@@ -286,7 +288,7 @@ class OptimizedCellGraph(CellGraph):
                     self_loop.add(i)
                     break
 
-        g_ind = set(nx.maximal_independent_set(g))
+        g_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
         i2_ind = g_ind.intersection(self_loop)
         i1_ind = g_ind.difference(i2_ind)
         non_ind = g.nodes - i1_ind - i2_ind
@@ -297,9 +299,10 @@ class OptimizedCellGraph(CellGraph):
 
     def _matches(self, clique, other_cell) -> bool:
         cell = clique[0]
-        if self.get_cell_weight(cell) != self.get_cell_weight(other_cell) or \
-                self.get_two_table_weight((cell, cell)) != self.get_two_table_weight((other_cell, other_cell)):
-            return False
+        if not self.modified_cell_symmetry:
+            if self.get_cell_weight(cell) != self.get_cell_weight(other_cell) or \
+                    self.get_two_table_weight((cell, cell)) != self.get_two_table_weight((other_cell, other_cell)):
+                return False
 
         if len(clique) > 1:
             third_cell = clique[1]
@@ -342,7 +345,8 @@ class OptimizedCellGraph(CellGraph):
                     self.domain_size - sum(partition) - bign, nval
                 )
                 smul = smul * self.get_J_term(s, nval)
-                smul = smul * self.get_cell_weight(self.cliques[s][0]) ** nval
+                if not self.modified_cell_symmetry:
+                    smul = smul * self.get_cell_weight(self.cliques[s][0]) ** nval
 
                 for i in self.nonind:
                     smul = smul * self.get_two_table_weight(
@@ -361,26 +365,38 @@ class OptimizedCellGraph(CellGraph):
             thesum = self.get_two_table_weight(
                 (self.cliques[l][0], self.cliques[l][0])
             ) ** (int(nhat * (nhat - 1) / 2))
+            if self.modified_cell_symmetry:
+                thesum = thesum * self.get_cell_weight(self.cliques[l][0]) ** nhat
         else:
             r = self.get_two_table_weight(
                 (self.cliques[l][0], self.cliques[l][1]))
             thesum = (
                 (r ** MultinomialCoefficients.comb(nhat, 2)) *
-                self.get_d_term(l, 1, len(self.cliques[l]), nhat)
+                self.get_d_term(l, nhat)
             )
         return thesum
 
     @functools.lru_cache(maxsize=None)
-    def get_d_term(self, l: int, cur: int, maxi: int, n: int) -> RingElement:
+    def get_d_term(self, l: int, n: int, cur: int = 0) -> RingElement:
+        clique_size = len(self.cliques[l])
         r = self.get_two_table_weight((self.cliques[l][0], self.cliques[l][1]))
         s = self.get_two_table_weight((self.cliques[l][0], self.cliques[l][0]))
-        if cur == maxi:
-            ret = (s / r) ** MultinomialCoefficients.comb(n, 2)
+        if cur == clique_size - 1:
+            if self.modified_cell_symmetry:
+                w = self.get_cell_weight(self.cliques[l][cur]) ** n
+                s = self.get_two_table_weight((self.cliques[l][cur], self.cliques[l][cur]))
+                ret = w * (s / r) ** MultinomialCoefficients.comb(n, 2)
+            else:
+                ret = (s / r) ** MultinomialCoefficients.comb(n, 2)
         else:
             ret = 0
             for ni in range(n + 1):
                 mult = MultinomialCoefficients.comb(n, ni)
+                if self.modified_cell_symmetry:
+                    w = self.get_cell_weight(self.cliques[l][cur]) ** ni
+                    s = self.get_two_table_weight((self.cliques[l][cur], self.cliques[l][cur]))
+                    mult = mult * w
                 mult = mult * ((s / r) ** MultinomialCoefficients.comb(ni, 2))
-                mult = mult * self.get_d_term(l, cur + 1, maxi, n - ni)
+                mult = mult * self.get_d_term(l, n - ni, cur + 1)
                 ret = ret + mult
         return ret
