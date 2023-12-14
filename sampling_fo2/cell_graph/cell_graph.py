@@ -133,7 +133,7 @@ class CellGraph(object):
     def _check_existence(self, cells: Tuple[Cell, Cell]):
         if cells not in self.two_tables:
             raise ValueError(
-                "Cells (%s) not found, note that the order of cells matters!", cells
+                f"Cells {cells} not found, note that the order of cells matters!"
             )
 
     @functools.lru_cache(maxsize=None, typed=True)
@@ -246,13 +246,24 @@ class OptimizedCellGraph(CellGraph):
         super().__init__(formula, get_weight)
         self.modified_cell_symmetry = modified_cell_symmetry
         self.domain_size: int = domain_size
-        self.cliques: list[list[Cell]] = self.build_symmetric_cliques()
         MultinomialCoefficients.setup(self.domain_size)
-        self.i1_ind, self.i2_ind, \
-            self.ind, self.nonind = self.find_independent_cliques()
-        self.nonind_map: dict[int, int] = dict(
-            zip(self.nonind, range(len(self.nonind))))
-
+        
+        if self.modified_cell_symmetry:
+            i1_ind_set, i2_ind_set, nonind_set = self.find_independent_sets()
+            self.cliques, [self.i1_ind, self.i2_ind, self.nonind] = \
+                self.build_symmetric_cliques_in_ind([i1_ind_set, i2_ind_set, nonind_set])
+            self.nonind_map: dict[int, int] = dict(zip(self.nonind, range(len(self.nonind))))
+        else:
+            self.cliques: list[list[Cell]] = self.build_symmetric_cliques()
+            self.i1_ind, self.i2_ind, self.ind, self.nonind \
+                = self.find_independent_cliques()
+            self.nonind_map: dict[int, int] = dict(
+                zip(self.nonind, range(len(self.nonind))))
+        
+        logger.info("Found i1 independent cliques: %s", self.i1_ind)
+        logger.info("Found i2 independent cliques: %s", self.i2_ind)
+        logger.info("Found non-independent cliques: %s", self.nonind)
+            
         self.term_cache = dict()
 
     def build_symmetric_cliques(self) -> List[List[Cell]]:
@@ -270,6 +281,53 @@ class OptimizedCellGraph(CellGraph):
         cliques.sort(key=len)
         logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
         return cliques
+
+    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> List[List[Cell]]:
+        i1_ind_set = deepcopy(cell_indices_list[0])
+        cliques: list[list[Cell]] = []
+        ind_idx: list[list[int]] = []
+        for cell_indices in cell_indices_list:
+            idx_list = []
+            while len(cell_indices) > 0:
+                cell_idx = cell_indices.pop()
+                clique = [self.cells[cell_idx]]
+                # for cell in I1 independent set, we dont need to built sysmmetric cliques
+                if cell_idx not in i1_ind_set:
+                    for other_cell_idx in cell_indices:
+                        other_cell = self.cells[other_cell_idx]
+                        if self._matches(clique, other_cell):
+                            clique.append(other_cell)
+                    for other_cell in clique[1:]:
+                        cell_indices.remove(self.cells.index(other_cell))
+                cliques.append(clique)
+                idx_list.append(len(cliques) - 1)
+            ind_idx.append(idx_list)
+        logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
+        return cliques, ind_idx
+    
+    def find_independent_sets(self) -> tuple[list[int], list[int], list[int], list[int]]:
+        g = nx.Graph()
+        g.add_nodes_from(range(len(self.cells)))
+        for i in range(len(self.cells)):
+            for j in range(i + 1, len(self.cells)):
+                if self.get_two_table_weight(
+                        (self.cells[i], self.cells[j])
+                ) != Rational(1, 1):
+                    g.add_edge(i, j)
+
+        self_loop = set()
+        for i in range(len(self.cells)):
+            if self.get_two_table_weight((self.cells[i], self.cells[i])) != Rational(1, 1):
+                self_loop.add(i)
+
+        i1_ind = set(nx.maximal_independent_set(g.subgraph(g.nodes-self_loop)))
+        g_ind = set(nx.maximal_independent_set(g, nodes=i1_ind))
+        i2_ind = g_ind.difference(i1_ind)
+        non_ind = g.nodes - i1_ind - i2_ind
+        logger.info("Found i1 independent set: %s", i1_ind)
+        logger.info("Found i2 independent set: %s", i2_ind)
+        logger.info("Found non-independent set: %s", non_ind)
+        return list(i1_ind), list(i2_ind), list(non_ind)
 
     def find_independent_cliques(self) -> tuple[list[int], list[int], list[int], list[int]]:
         g = nx.Graph()
@@ -292,9 +350,6 @@ class OptimizedCellGraph(CellGraph):
         i2_ind = g_ind.intersection(self_loop)
         i1_ind = g_ind.difference(i2_ind)
         non_ind = g.nodes - i1_ind - i2_ind
-        logger.info("Found i1 independent cliques: %s", i1_ind)
-        logger.info("Found i2 independent cliques: %s", i2_ind)
-        logger.info("Found non-independent cliques: %s", non_ind)
         return list(i1_ind), list(i2_ind), list(g_ind), list(non_ind)
 
     def _matches(self, clique, other_cell) -> bool:
