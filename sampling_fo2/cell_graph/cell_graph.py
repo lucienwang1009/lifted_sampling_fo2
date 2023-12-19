@@ -247,7 +247,7 @@ class OptimizedCellGraph(CellGraph):
         self.modified_cell_symmetry = modified_cell_symmetry
         self.domain_size: int = domain_size
         MultinomialCoefficients.setup(self.domain_size)
-        
+
         if self.modified_cell_symmetry:
             i1_ind_set, i2_ind_set, nonind_set = self.find_independent_sets()
             self.cliques, [self.i1_ind, self.i2_ind, self.nonind] = \
@@ -259,11 +259,11 @@ class OptimizedCellGraph(CellGraph):
                 = self.find_independent_cliques()
             self.nonind_map: dict[int, int] = dict(
                 zip(self.nonind, range(len(self.nonind))))
-        
+
         logger.info("Found i1 independent cliques: %s", self.i1_ind)
         logger.info("Found i2 independent cliques: %s", self.i2_ind)
         logger.info("Found non-independent cliques: %s", self.nonind)
-            
+
         self.term_cache = dict()
 
     def build_symmetric_cliques(self) -> List[List[Cell]]:
@@ -304,7 +304,7 @@ class OptimizedCellGraph(CellGraph):
             ind_idx.append(idx_list)
         logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
         return cliques, ind_idx
-    
+
     def find_independent_sets(self) -> tuple[list[int], list[int], list[int], list[int]]:
         g = nx.Graph()
         g.add_nodes_from(range(len(self.cells)))
@@ -346,7 +346,11 @@ class OptimizedCellGraph(CellGraph):
                     self_loop.add(i)
                     break
 
-        g_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
+        non_self_loop = g.nodes - self_loop
+        if non_self_loop:
+            g_ind = set()
+        else:
+            g_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
         i2_ind = g_ind.intersection(self_loop)
         i1_ind = g_ind.difference(i2_ind)
         non_ind = g.nodes - i1_ind - i2_ind

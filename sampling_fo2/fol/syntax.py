@@ -266,6 +266,8 @@ class AtomicFormula(QFFormula):
 
     @functools.lru_cache(maxsize=None)
     def make_positive(self):
+        if self.positive:
+            return self
         return AtomicFormula(self.pred, self.args, True)
 
     def __str__(self):
