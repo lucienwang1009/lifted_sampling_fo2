@@ -247,7 +247,8 @@ class AtomicFormula(QFFormula):
     pred: Pred
     args: tuple[Term]
     positive: bool
-    expr: backend.Expr = field(init=False, default=None)
+    expr: backend.Expr = field(init=False, default=None,
+                               hash=False, compare=False)
 
     def __post_init__(self):
         if len(self.args) != self.pred.arity:
