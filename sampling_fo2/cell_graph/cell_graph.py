@@ -8,6 +8,7 @@ from typing import Callable, Dict, FrozenSet, List, Tuple
 from logzero import logger
 from sympy import Poly
 from copy import deepcopy
+from sampling_fo2.cell_graph.utils import conditional_on
 
 from sampling_fo2.fol.sc2 import SC2
 
@@ -206,28 +207,31 @@ class CellGraph(object):
 
     def _build_two_tables(self):
         # build a pd.DataFrame containing all model as well as the weight
-        atoms = list(self.gnd_formula_ab.atoms())
-        table = []
+        models = dict()
+        gnd_lits = self.gnd_formula_ab.atoms()
+        gnd_lits = gnd_lits.union(
+            frozenset(map(lambda x: ~x, gnd_lits))
+        )
         for model in self.gnd_formula_ab.models():
             weight = Rational(1, 1)
-            values = {}
             for lit in model:
-                values[lit.make_positive()] = lit.positive
                 # ignore the weight appearing in cell weight
                 if (not (len(lit.args) == 1 or all(arg == lit.args[0]
                                                    for arg in lit.args))):
                     weight *= (self.get_weight(lit.pred)[0] if lit.positive else
                                self.get_weight(lit.pred)[1])
-            table.append([values[atom] for atom in atoms] + [weight])
-        model_table = pd.DataFrame(
-            table, columns=atoms + ['weight']
-        )
+            models[frozenset(model)] = weight
         # build twotable tables
         tables = dict()
-        for cell in self.cells:
-            for other_cell in self.cells:
+        for i, cell in enumerate(self.cells):
+            models_1 = conditional_on(models, gnd_lits, cell.get_evidences(a))
+            for j, other_cell in enumerate(self.cells):
+                if i > j:
+                    tables[(cell, other_cell)] = tables[(other_cell, cell)]
+                models_2 = conditional_on(models_1, gnd_lits,
+                                          other_cell.get_evidences(b))
                 tables[(cell, other_cell)] = TwoTable(
-                    model_table, cell, other_cell
+                    models_2, gnd_lits
                 )
         return tables
 
