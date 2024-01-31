@@ -324,7 +324,11 @@ class OptimizedCellGraph(CellGraph):
             if self.get_two_table_weight((self.cells[i], self.cells[i])) != Rational(1, 1):
                 self_loop.add(i)
 
-        i1_ind = set(nx.maximal_independent_set(g.subgraph(g.nodes-self_loop)))
+        non_self_loop = g.nodes - self_loop
+        if non_self_loop:
+            i1_ind = set()
+        else:
+            i1_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
         g_ind = set(nx.maximal_independent_set(g, nodes=i1_ind))
         i2_ind = g_ind.difference(i1_ind)
         non_ind = g.nodes - i1_ind - i2_ind

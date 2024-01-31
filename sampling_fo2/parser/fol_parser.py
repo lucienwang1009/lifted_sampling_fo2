@@ -127,7 +127,7 @@ if __name__ == '__main__':
         | \forall X: (\exists Y: (f(X,Y)) <-> \forall Y: (f(X, Y)))
     """
     text = r"""
-        ExactlyOne[A, N, B]
+        \forall X: (\forall Y: (A(X,Y)) | \forall Y: (B(X,Y)))
     """
     fol_parser = Lark(function_free_logic_grammar,
                       start='ffl')
