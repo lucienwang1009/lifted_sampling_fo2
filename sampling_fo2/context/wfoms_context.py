@@ -125,7 +125,7 @@ class WFOMSContext(object):
                     convert_counting_formula(cnt_formula, self.domain)
                 self.formula = self.formula & uni_formula
                 self.ext_formulas = self.ext_formulas + ext_formulas
-                self.cardinality_constraint.add(*cardinality_constraint)
+                self.cardinality_constraint.add_simple_constraint(*cardinality_constraint)
 
         if self.contain_cardinality_constraint():
             self.cardinality_constraint.build()
