@@ -435,12 +435,7 @@ class OptimizedCellGraph(CellGraph):
             if self.modified_cell_symmetry:
                 thesum = thesum * self.get_cell_weight(self.cliques[l][0]) ** nhat
         else:
-            r = self.get_two_table_weight(
-                (self.cliques[l][0], self.cliques[l][1]))
-            thesum = (
-                (r ** MultinomialCoefficients.comb(nhat, 2)) *
-                self.get_d_term(l, nhat)
-            )
+            thesum = self.get_d_term(l, nhat)
         return thesum
 
     @functools.lru_cache(maxsize=None)
@@ -452,9 +447,9 @@ class OptimizedCellGraph(CellGraph):
             if self.modified_cell_symmetry:
                 w = self.get_cell_weight(self.cliques[l][cur]) ** n
                 s = self.get_two_table_weight((self.cliques[l][cur], self.cliques[l][cur]))
-                ret = w * (s / r) ** MultinomialCoefficients.comb(n, 2)
+                ret = w * s ** MultinomialCoefficients.comb(n, 2)
             else:
-                ret = (s / r) ** MultinomialCoefficients.comb(n, 2)
+                ret = s ** MultinomialCoefficients.comb(n, 2)
         else:
             ret = 0
             for ni in range(n + 1):
@@ -463,7 +458,8 @@ class OptimizedCellGraph(CellGraph):
                     w = self.get_cell_weight(self.cliques[l][cur]) ** ni
                     s = self.get_two_table_weight((self.cliques[l][cur], self.cliques[l][cur]))
                     mult = mult * w
-                mult = mult * ((s / r) ** MultinomialCoefficients.comb(ni, 2))
+                mult = mult * (s ** MultinomialCoefficients.comb(ni, 2))
+                mult = mult * r ** (ni * (n - ni))
                 mult = mult * self.get_d_term(l, n - ni, cur + 1)
                 ret = ret + mult
         return ret
