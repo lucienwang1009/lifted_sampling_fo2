@@ -34,12 +34,6 @@ class SC2(Formula):
         p = self.uni_formula.preds() if self.uni_formula is not None else set()
         return reduce(lambda x, y: x.union(y), map(lambda f: f.preds(), self.ext_formulas), p)
 
-    def pred_by_name(self, name: str) -> Union[Pred, None]:
-        for pred in self.preds():
-            if pred.name == name:
-                return pred
-        return None
-
     def __str__(self) -> str:
         s = ''
         if self.uni_formula is not None:

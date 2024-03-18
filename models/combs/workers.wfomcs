@@ -1,0 +1,9 @@
+ExactlyOne[A, B, C, D, E, F]
+
+workers = 33
+|A| = 7
+|B| = 5
+|C| = 2
+|D| = 7
+|E| = 7
+|F| = 5

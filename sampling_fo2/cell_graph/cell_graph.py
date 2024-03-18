@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 
 import pandas as pd
 import functools
@@ -10,13 +11,12 @@ from sympy import Poly
 from copy import deepcopy
 from sampling_fo2.cell_graph.utils import conditional_on
 
-from sampling_fo2.fol.sc2 import SC2
-
-from sampling_fo2.fol.syntax import AtomicFormula, Const, Pred, QFFormula, a, b, c
+from sampling_fo2.fol.syntax import AUXILIARY_PRED_NAME, AtomicFormula, Const, Pred, QFFormula, a, b, c
+from sampling_fo2.network.constraint import PartitionConstraint
 from sampling_fo2.utils import Rational, RingElement
 from sampling_fo2.utils.multinomial import MultinomialCoefficients
 
-from .components import Cell, TwoTable
+from .components import Cell, CellClique, TwoTable
 
 
 class CellGraph(object):
@@ -25,17 +25,19 @@ class CellGraph(object):
     """
 
     def __init__(self, formula: QFFormula,
-                 get_weight: Callable[[Pred], Tuple[RingElement, RingElement]]):
+                 get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
+                 leq_pred: Pred = None):
         """
         Cell graph that handles cells (1-types) and the WMC between them
 
-        :param sentence CNF: the sentence in the form of CNF
-        :param get_weight Callable[[Pred], Tuple[mpq, mpq]]: the weighting function
+        :param sentence QFFormula: the sentence in the form of quantifier-free formula
+        :param get_weight Callable[[Pred], Tuple[RingElement, RingElement]]: the weighting function
         :param conditional_formulas List[CNF]: the optional conditional formula appended in WMC computing
         """
         self.formula: QFFormula = formula
         self.get_weight: Callable[[Pred],
                                   Tuple[RingElement, RingElement]] = get_weight
+        self.leq_pred: Pred = leq_pred
         self.preds: Tuple[Pred] = tuple(self.formula.preds())
         logger.debug('prednames: %s', self.preds)
 
@@ -50,6 +52,11 @@ class CellGraph(object):
         self.gnd_formula_cc: QFFormula = self._ground_on_tuple(
             self.formula, c
         )
+        if self.leq_pred is not None:
+            self.gnd_formula_cc &= self.leq_pred(c, c)
+            self.gnd_formula_ab = self.gnd_formula_ab & \
+                self.leq_pred(b, a) & \
+                (~self.leq_pred(a, b))
         logger.info('ground a b: %s', self.gnd_formula_ab)
         logger.info('ground c: %s', self.gnd_formula_cc)
 
@@ -59,7 +66,9 @@ class CellGraph(object):
         logger.info('the number of valid cells: %s',
                     len(self.cells))
 
+        logger.info('computing cell weights')
         self.cell_weights: Dict[Cell, Poly] = self._compute_cell_weights()
+        logger.info('computing two table weights')
         self.two_tables: Dict[Tuple[Cell, Cell],
                               TwoTable] = self._build_two_tables()
 
@@ -226,10 +235,11 @@ class CellGraph(object):
         for i, cell in enumerate(self.cells):
             models_1 = conditional_on(models, gnd_lits, cell.get_evidences(a))
             for j, other_cell in enumerate(self.cells):
-                if i > j:
-                    tables[(cell, other_cell)] = tables[(other_cell, cell)]
-                models_2 = conditional_on(models_1, gnd_lits,
-                                          other_cell.get_evidences(b))
+                # NOTE: enabling this will make incrementalWFOMC fail
+                # if i > j:
+                #     tables[(cell, other_cell)] = tables[(other_cell, cell)]
+                #     continue
+                models_2 = conditional_on(models_1, gnd_lits, other_cell.get_evidences(b))
                 tables[(cell, other_cell)] = TwoTable(
                     models_2, gnd_lits
                 )
@@ -254,9 +264,9 @@ class OptimizedCellGraph(CellGraph):
 
         if self.modified_cell_symmetry:
             i1_ind_set, i2_ind_set, nonind_set = self.find_independent_sets()
-            self.cliques, [self.i1_ind, self.i2_ind, self.nonind] = \
-                self.build_symmetric_cliques_in_ind([i1_ind_set, i2_ind_set, nonind_set])
-            self.nonind_map: dict[int, int] = dict(zip(self.nonind, range(len(self.nonind))))
+            self.cliques, [self.i2_ind, self.nonind] = \
+                self.build_symmetric_cliques_in_ind([i2_ind_set, nonind_set])
+            self.i1_ind = i1_ind_set
         else:
             self.cliques: list[list[Cell]] = self.build_symmetric_cliques()
             self.i1_ind, self.i2_ind, self.ind, self.nonind \
@@ -267,10 +277,10 @@ class OptimizedCellGraph(CellGraph):
         logger.info("Found i1 independent cliques: %s", self.i1_ind)
         logger.info("Found i2 independent cliques: %s", self.i2_ind)
         logger.info("Found non-independent cliques: %s", self.nonind)
-
         self.term_cache = dict()
 
     def build_symmetric_cliques(self) -> List[List[Cell]]:
+        logger.info("Building symmetric cliques...")
         cliques: list[list[Cell]] = []
         cells = deepcopy(self.get_cells())
         while len(cells) > 0:
@@ -283,30 +293,36 @@ class OptimizedCellGraph(CellGraph):
                 cells.remove(other_cell)
             cliques.append(clique)
         cliques.sort(key=len)
-        logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
+        logger.info("Built %s symmetric cliques:", len(cliques))
+        for idx, clique in enumerate(cliques):
+            logger.info("  clique %s", idx)
+            for cell in clique:
+                logger.info("    %s", cell.drop_preds(prefixes=[AUXILIARY_PRED_NAME]))
         return cliques
 
-    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> List[List[Cell]]:
-        i1_ind_set = deepcopy(cell_indices_list[0])
-        cliques: list[list[Cell]] = []
+    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> \
+            tuple[list[CellClique], list[list[int]]]:
+        cliques: list[CellClique] = []
         ind_idx: list[list[int]] = []
         for cell_indices in cell_indices_list:
             idx_list = []
             while len(cell_indices) > 0:
                 cell_idx = cell_indices.pop()
                 clique = [self.cells[cell_idx]]
-                # for cell in I1 independent set, we dont need to built sysmmetric cliques
-                if cell_idx not in i1_ind_set:
-                    for other_cell_idx in cell_indices:
-                        other_cell = self.cells[other_cell_idx]
-                        if self._matches(clique, other_cell):
-                            clique.append(other_cell)
-                    for other_cell in clique[1:]:
-                        cell_indices.remove(self.cells.index(other_cell))
+                for other_cell_idx in cell_indices:
+                    other_cell = self.cells[other_cell_idx]
+                    if self._matches(clique, other_cell):
+                        clique.append(other_cell)
+                for other_cell in clique[1:]:
+                    cell_indices.remove(self.cells.index(other_cell))
                 cliques.append(clique)
                 idx_list.append(len(cliques) - 1)
             ind_idx.append(idx_list)
-        logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
+        logger.info("Built %s symmetric cliques: ", len(cliques))
+        for idx, clique in enumerate(cliques):
+            logger.debug('clique %s:', idx)
+            for cell in clique:
+                logger.debug('  %s', cell)
         return cliques, ind_idx
 
     def find_independent_sets(self) -> tuple[list[int], list[int], list[int], list[int]]:
@@ -324,13 +340,14 @@ class OptimizedCellGraph(CellGraph):
             if self.get_two_table_weight((self.cells[i], self.cells[i])) != Rational(1, 1):
                 self_loop.add(i)
 
-        non_self_loop = g.nodes - self_loop
-        if non_self_loop:
-            i1_ind = set()
+        without_self_loop = g.nodes - self_loop
+        if len(without_self_loop) > 0:
+            min_ind = set(nx.maximal_independent_set(g.subgraph(g.nodes - self_loop)))
+            g_ind = set(nx.maximal_independent_set(g, nodes=min_ind))
         else:
-            i1_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
-        g_ind = set(nx.maximal_independent_set(g, nodes=i1_ind))
-        i2_ind = g_ind.difference(i1_ind)
+            g_ind = set(nx.maximal_independent_set(g))
+        i2_ind = g_ind.intersection(self_loop)
+        i1_ind = g_ind.difference(i2_ind)
         non_ind = g.nodes - i1_ind - i2_ind
         logger.info("Found i1 independent set: %s", i1_ind)
         logger.info("Found i2 independent set: %s", i2_ind)
@@ -396,10 +413,10 @@ class OptimizedCellGraph(CellGraph):
         if iv == 0:
             accum = Rational(0, 1)
             for j in self.i1_ind:
-                tmp = self.get_cell_weight(self.cliques[j][0])
+                tmp = self.get_cell_weight(self.cells[j])
                 for i in self.nonind:
                     tmp = tmp * self.get_two_table_weight(
-                        (self.cliques[i][0], self.cliques[j][0])) ** partition[self.nonind_map[i]]
+                        (self.cliques[i][0], self.cells[j])) ** partition[self.nonind_map[i]]
                 accum = accum + tmp
             accum = accum ** (self.domain_size - sum(partition) - bign)
             self.term_cache[(iv, bign)] = accum
@@ -461,5 +478,271 @@ class OptimizedCellGraph(CellGraph):
                 mult = mult * (s ** MultinomialCoefficients.comb(ni, 2))
                 mult = mult * r ** (ni * (n - ni))
                 mult = mult * self.get_d_term(l, n - ni, cur + 1)
+                ret = ret + mult
+        return ret
+
+
+class OptimizedCellGraphWithPC(CellGraph):
+    def __init__(self, formula: QFFormula,
+                 get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
+                 domain_size: int,
+                 partition_constraint: PartitionConstraint):
+        """
+        Optimized cell graph for FastWFOMC
+        :param formula: the formula to be grounded
+        :param get_weight: a function that returns the weight of a predicate
+        :param domain_size: the domain size
+        """
+        super().__init__(formula, get_weight)
+        self.domain_size: int = domain_size
+        MultinomialCoefficients.setup(self.domain_size)
+
+        i1_ind_set, i2_ind_set, nonind_set = self.find_independent_sets()
+        nonind_set = i2_ind_set + nonind_set
+        i2_ind_set = set()
+        # for cell in I1 independent set, we dont need to built sysmmetric cliques
+        self.cliques, [self.i2_ind, self.nonind] = \
+            self.build_symmetric_cliques_in_ind([i2_ind_set, nonind_set])
+        # for cells in i1_ind, itself is a clique, so we just use the cell itself
+        self.i1_ind = i1_ind_set
+        self.nonind_map: dict[int, int] = dict(zip(self.nonind, range(len(self.nonind))))
+
+        logger.info("Found i1 independent cliques: %s", list(self.cells[i] for i in self.i1_ind))
+        logger.info("Found i2 independent cliques: ")
+        for idx in self.i2_ind:
+            logger.info("  %s", list(cell for cell in self.cliques[idx]))
+        logger.info("Found non-independent cliques: ")
+        for idx in self.nonind:
+            logger.info("  %s", list(cell for cell in self.cliques[idx]))
+        self.term_cache = dict()
+
+        self.partition_constraint = partition_constraint
+        # partition each clique according to the partition constraint
+        # NOTE: ignore the empty set of cells
+        # {clique_idx: [[cell_idx_in_clique for pred1],
+        #               [cell_idx_in_clique for pred2],
+        #                             ..
+        #               [cell_idx_in_clique for predk]]}
+        # partition constrained cells into cliques
+        # {pred_idx: [clique_indices that pred1 appears,
+        #             clique_indices that pred2 appears
+        #                     ndices...
+        #             clique_indices that pred3 appears]
+        self.clique_partitions: dict[int, list[list[int]]] = dict()
+        self.partition_cliques: dict[int, list[int]] = defaultdict(list)
+        for idx, clique in enumerate(self.cliques):
+            clique_partiton = list()
+            for pred_idx, (pred, _) in enumerate(self.partition_constraint.partition):
+                tmp = list()
+                for cell_idx, cell in enumerate(clique):
+                    if cell.is_positive(pred):
+                        tmp.append(cell_idx)
+                if len(tmp) > 0:
+                    clique_partiton.append(tmp)
+                    self.partition_cliques[pred_idx].append(idx)
+            self.clique_partitions[idx] = clique_partiton
+        logger.info("Clique partitions: %s", self.clique_partitions)
+        logger.info("Partition cliques: %s", self.partition_cliques)
+
+        self.i1_partition: list[list[int]] = list()
+        for pred, _ in self.partition_constraint.partition:
+            self.i1_partition.append(list(filter(
+                lambda idx: self.cells[idx].is_positive(pred), self.i1_ind
+            )))
+        logger.info("I1 partition: %s", self.i1_partition)
+
+    def set_clique_configs(self, clique_configs: dict[int, list[int]]):
+        self.clique_configs = clique_configs
+        self.ovarall_clique_config = list(sum(v) for _, v in self.clique_configs.items())
+        logger.info('Clique configs: %s', self.clique_configs)
+        logger.info('Overall clique config: %s', self.ovarall_clique_config)
+
+    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> \
+            tuple[list[CellClique], list[list[int]]]:
+        cliques: list[CellClique] = []
+        ind_idx: list[list[int]] = []
+        for cell_indices in cell_indices_list:
+            idx_list = []
+            while len(cell_indices) > 0:
+                cell_idx = cell_indices.pop()
+                clique = [self.cells[cell_idx]]
+                for other_cell_idx in cell_indices:
+                    other_cell = self.cells[other_cell_idx]
+                    if self._matches(clique, other_cell):
+                        clique.append(other_cell)
+                for other_cell in clique[1:]:
+                    cell_indices.remove(self.cells.index(other_cell))
+                cliques.append(clique)
+                idx_list.append(len(cliques) - 1)
+            ind_idx.append(idx_list)
+        logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
+        return cliques, ind_idx
+
+    def find_independent_sets(self) -> tuple[list[int], list[int], list[int]]:
+        g = nx.Graph()
+        g.add_nodes_from(range(len(self.cells)))
+        for i in range(len(self.cells)):
+            for j in range(i + 1, len(self.cells)):
+                if self.get_two_table_weight(
+                        (self.cells[i], self.cells[j])
+                ) != Rational(1, 1):
+                    g.add_edge(i, j)
+
+        self_loop = set()
+        for i in range(len(self.cells)):
+            if self.get_two_table_weight((self.cells[i], self.cells[i])) != Rational(1, 1):
+                self_loop.add(i)
+
+        without_self_loop = g.nodes - self_loop
+        if len(without_self_loop) > 0:
+            min_ind = set(nx.maximal_independent_set(g.subgraph(g.nodes - self_loop)))
+            g_ind = set(nx.maximal_independent_set(g, nodes=min_ind))
+        else:
+            g_ind = set(nx.maximal_independent_set(g))
+        i2_ind = g_ind.intersection(self_loop)
+        i1_ind = g_ind.difference(i2_ind)
+        non_ind = g.nodes - i1_ind - i2_ind
+        logger.info("Found i1 independent set: %s", i1_ind)
+        logger.info("Found i2 independent set: %s", i2_ind)
+        logger.info("Found non-independent set: %s", non_ind)
+        return list(i1_ind), list(i2_ind), list(non_ind)
+
+    def _matches(self, clique, other_cell) -> bool:
+        cell = clique[0]
+
+        if len(clique) > 1:
+            third_cell = clique[1]
+            r = self.get_two_table_weight((cell, third_cell))
+            for third_cell in clique:
+                if r != self.get_two_table_weight((other_cell, third_cell)):
+                    return False
+
+        for third_cell in self.get_cells():
+            if other_cell == third_cell or third_cell in clique:
+                continue
+            r = self.get_two_table_weight((cell, third_cell))
+            if r != self.get_two_table_weight((other_cell, third_cell)):
+                return False
+        return True
+
+    def setup_term_cache(self):
+        self.term_cache = dict()
+
+    def get_i1_weight(self, i1_config: tuple[int],
+                      config: tuple[int]) -> RingElement:
+        ret = Rational(1, 1)
+        for i1_inds, num in zip(self.i1_partition, i1_config):
+            # NOTE: it means the config is not valid
+            if len(i1_inds) == 0 and num > 0:
+                return 0
+            accum = Rational(0, 1)
+            for i in i1_inds:
+                tmp = self.get_cell_weight(self.cells[i])
+                for j in self.nonind:
+                    tmp = tmp * self.get_two_table_weight(
+                        (self.cliques[j][0], self.cells[i])
+                    ) ** config[self.nonind_map[j]]
+                accum = accum + tmp
+            ret = ret * (accum ** num)
+        return ret
+
+    def get_term(self, iv: int, bign: int, i1_partition: tuple[int],
+                 partition: tuple[int]) -> RingElement:
+        if (iv, bign) in self.term_cache:
+            return self.term_cache[(iv, bign)]
+
+        if iv == 0:
+            return self.get_i1_weight(i1_partition, partition)
+        else:
+            sumtoadd = 0
+            s = self.i2_ind[len(self.i2_ind) - iv]
+            for nval in range(self.domain_size - sum(partition) - bign + 1):
+                smul = MultinomialCoefficients.comb(
+                    self.domain_size - sum(partition) - bign, nval
+                )
+                smul = smul * self.get_J_term(s, nval)
+
+                for i in self.nonind:
+                    smul = smul * self.get_two_table_weight(
+                        (self.cliques[i][0], self.cliques[s][0])
+                    ) ** (partition[self.nonind_map[i]] * nval)
+                smul = smul * self.get_term(
+                    iv - 1, bign + nval, partition
+                )
+                sumtoadd = sumtoadd + smul
+            self.term_cache[(iv, bign)] = sumtoadd
+            return sumtoadd
+
+    @functools.lru_cache(maxsize=None)
+    def get_J_term(self, l: int, clique_config: tuple[int]) -> RingElement:
+        """
+        clique_config: the partition config in the clique l
+        """
+        ret = Rational(1, 1)
+        clique = self.cliques[l]
+        clique_partition = self.clique_partitions[l]
+        # the clique belongs to one pred
+        if len(clique_partition) == 1:
+            ret = self.get_partitioned_J_term(
+                l, 0, clique_config[0]
+            )
+        else:
+            # at least two cells in the clique
+            r = self.get_two_table_weight((clique[0], clique[1]))
+            sumn = Rational(0, 1)
+            for i, n1 in enumerate(clique_config):
+                for j, n2 in enumerate(clique_config):
+                    if i < j:
+                        sumn = sumn + n1 * n2
+            ret = ret * (r ** sumn)
+            for par_idx in range(len(clique_partition)):
+                ret = ret * self.get_partitioned_J_term(
+                    l, par_idx, clique_config[par_idx]
+                )
+        return ret
+
+    @functools.lru_cache(maxsize=None)
+    def get_partitioned_J_term(self, l: int, par_idx: int, nhat: int):
+        cell_indices_in_clique = self.clique_partitions[l][par_idx]
+        clique = self.cliques[l]
+        if len(cell_indices_in_clique) == 1:
+            thesum = self.get_two_table_weight(
+                (clique[cell_indices_in_clique[0]],
+                 clique[cell_indices_in_clique[0]])
+            ) ** MultinomialCoefficients.comb(nhat, 2)
+            thesum = thesum * self.get_cell_weight(
+                clique[cell_indices_in_clique[0]]
+            ) ** nhat
+        else:
+            r = self.get_two_table_weight(
+                (clique[cell_indices_in_clique[0]],
+                 clique[cell_indices_in_clique[1]])
+            )
+            thesum = (
+                (r ** MultinomialCoefficients.comb(nhat, 2)) *
+                self.get_d_term(l, nhat, par_idx)
+            )
+        return thesum
+
+    @functools.lru_cache(maxsize=None)
+    def get_d_term(self, l: int, n: int, par_idx: int, cur: int = 0) -> RingElement:
+        cell_indices_in_clique = self.clique_partitions[l][par_idx]
+        cell_index = cell_indices_in_clique[cur]
+        cells_num = len(cell_indices_in_clique)
+        clique = self.cliques[l]
+        r = self.get_two_table_weight((clique[0], clique[1]))
+        if cur == cells_num - 1:
+            w = self.get_cell_weight(clique[cell_index]) ** n
+            s = self.get_two_table_weight((clique[cell_index], clique[cell_index]))
+            ret = w * (s / r) ** MultinomialCoefficients.comb(n, 2)
+        else:
+            ret = 0
+            for ni in range(n + 1):
+                mult = MultinomialCoefficients.comb(n, ni)
+                w = self.get_cell_weight(clique[cell_index]) ** ni
+                s = self.get_two_table_weight((clique[cell_index], clique[cell_index]))
+                mult = mult * w
+                mult = mult * ((s / r) ** MultinomialCoefficients.comb(ni, 2))
+                mult = mult * self.get_d_term(l, n - ni, par_idx, cur + 1)
                 ret = ret + mult
         return ret

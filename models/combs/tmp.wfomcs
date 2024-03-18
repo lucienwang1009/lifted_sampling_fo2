@@ -1,0 +1,28 @@
+ExactlyOne[Dom, Img] &
+# \forall X: (~Dom(X) | (\exists_{=1} Y: (F(X,Y))))
+# \forall X: (\forall Y: (F(X,Y) -> Img(Y)))
+# \forall X: (~Dom(X) -> ~F(X,Y))
+
+# A(X) = ~Dom(X)
+# R(X,Y) = F(X,Y)
+# \forall X: (Re(X) <-> (Dom(X) & Img(X))) &
+# \forall X: (\exists_{=1} Y: (Br(X, Y))) &
+# \forall X: (\forall Y: ((~Dom(X) & Br(X, Y)) -> Ur(Y))) &
+# \forall X: (\forall Y: (Dom(X) -> (F(X, Y) <-> Br(X, Y)))) &
+# \forall X: (\forall Y: (F(X,Y) -> Img(Y))) &
+# \forall X: (~Dom(X) -> ~F(X,Y)) &
+# \forall X: (Ur(X) -> Img(X))
+
+\forall X: (\exists Y: (Dom(X) -> F(X,Y))) &
+\forall X: (\forall Y: (F(X,Y) -> (Dom(X) & Img(Y)))) &
+\forall Y: (Img(Y) -> (\exists X: (F(X, Y))))
+# \forall Y: (I(Y) <-> \exists X: (F(X,Y))) 
+# \forall X: (\forall Y: (~Dom(X) -> ~F(X,Y)))
+
+domain = 7
+|Img| = 3
+|Dom| = 4
+|F| - |Dom| = 0
+# |I| <= 1
+# |Re| = 1
+# |Ur| = 1

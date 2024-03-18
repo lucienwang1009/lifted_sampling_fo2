@@ -6,7 +6,7 @@ from typing import Iterable, Generator
 from functools import reduce
 from itertools import accumulate, repeat
 
-from symengine import var, Expr, Symbol
+from symengine import Pow, var, Expr, Symbol
 from symengine import Rational as sym_Rational
 from symengine.lib.symengine_wrapper import lcm
 from decimal import Decimal
@@ -53,6 +53,9 @@ def _get_degrees(monomial: Poly):
 def coeff_dict(p: Poly, gens: list[Symbol]) -> Generator[tuple[int], Rational, None]:
     for monomial, coeff in p.as_coefficients_dict().items():
         degrees = dict(_get_degrees(monomial))
+        for var, degree in degrees.items():
+            if (var is not None and var not in gens) and degree != 0:
+                coeff *= Pow(var, degree)
         yield tuple(degrees.get(sym, 0) for sym in gens), coeff
 
 

@@ -23,6 +23,8 @@ class WFOMSContext(object):
         self.sentence: SC2 = problem.sentence
         self.weights: dict[Pred, tuple[Rational, Rational]] = problem.weights
         self.cardinality_constraint: CardinalityConstraint = problem.cardinality_constraint
+        if self.cardinality_constraint is None:
+            self.cardinality_constraint = CardinalityConstraint()
 
         logger.info('sentence: \n%s', self.sentence)
         logger.info('domain: \n%s', self.domain)
@@ -60,7 +62,7 @@ class WFOMSContext(object):
         self.etables: list[ExistentialTwoTable] = self._build_etables()
 
     def contain_cardinality_constraint(self) -> bool:
-        return self.cardinality_constraint is not None
+        return self.cardinality_constraint.empty()
 
     def contain_existential_quantifier(self) -> bool:
         return self.sentence.contain_existential_quantifier() or \
@@ -118,8 +120,6 @@ class WFOMSContext(object):
         self.ext_formulas = self.sentence.ext_formulas
         if self.sentence.contain_counting_quantifier():
             logger.info('translate SC2 to SNF')
-            if not self.contain_cardinality_constraint():
-                self.cardinality_constraint = CardinalityConstraint()
             for cnt_formula in self.sentence.cnt_formulas:
                 uni_formula, ext_formulas, cardinality_constraint, _ = \
                     convert_counting_formula(cnt_formula, self.domain)

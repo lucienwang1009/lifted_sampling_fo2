@@ -1,0 +1,12 @@
+ExactlyOne[defective, non_defective] &
+\forall X: (tv(X) <-> (defective(X) | non_defective(X))) &
+\forall X: (aux0(X) -> defective(X)) &
+\forall X: (aux1(X) -> non_defective(X)) &
+\forall X: (purchase(X) -> tv(X)) &
+\forall X: ((defective(X) & purchase(X)) <-> pd(X))
+
+domain = 12
+|aux0| = 3
+|aux1| = 9
+|purchase| = 5
+|pd| >= 2

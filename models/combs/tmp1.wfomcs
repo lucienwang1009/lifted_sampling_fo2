@@ -1,0 +1,7 @@
+ExactlyOne[P1, P2, P3] &
+\forall X: (\forall Y: (P1(X) & LEQ(X, Y) -> ~P1(Y)))
+
+domain = 10
+|P1| = 1
+|P2| = 5
+|P3| = 4

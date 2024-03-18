@@ -1,0 +1,12 @@
+ExactlyOne[BD, BI1] & 
+ExactlyOne[P1, P2, P3, P4] &
+\forall X: (B(X) <-> (BD(X) | BI1(X))) &
+\forall X: ((P1(X) | P2(X) | P3(X) | P4(X)) -> B(X)) &
+\forall X: (SI1(X) <-> (BI1(X) & S(X))) &
+\forall X: (\forall Y: ((S(X) & ~S(Y)) -> LEQ(X, Y)))
+
+domain = 10
+|BD| = 5
+|BI1| = 5
+|S| = 5
+|SI1| = 2

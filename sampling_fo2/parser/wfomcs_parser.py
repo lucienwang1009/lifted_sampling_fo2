@@ -56,31 +56,25 @@ class WFOMSTransformer(FOLTransformer, CCTransfomer):
         return str(args[0])
 
     def wfomcs(self, args) -> \
-            tuple[SC2, set[Const], dict[Pred, tuple[Rational, Rational]],
+            tuple[Formula, set[Const], dict[Pred, tuple[Rational, Rational]],
                   CardinalityConstraint]:
         sentence = args[0]
         domain = args[1][1]
         weightings = args[2]
         cardinality_constraints = args[3]
-        try:
-            sentence = to_sc2(sentence)
-        except:
-            raise ValueError('Sentence must be a valid SC2 formula.')
+        # sentence = to_sc2(sentence)
 
         ccs: list[tuple[dict[Pred, float], str, float]] = list()
-        if len(cardinality_constraints) > 0:
-            for cc in cardinality_constraints:
-                new_expr = dict()
-                expr, comparator, param = cc
-                for pred_name, coef in expr.items():
-                    pred = self.name2pred.get(pred_name, None)
-                    if not pred:
-                        raise ValueError(f'Predicate {pred_name} not found')
-                    new_expr[pred] = coef
-                ccs.append((new_expr, comparator, param))
-            cardinality_constraint = CardinalityConstraint(ccs)
-        else:
-            cardinality_constraint = None
+        for cc in cardinality_constraints:
+            new_expr = dict()
+            expr, comparator, param = cc
+            for pred_name, coef in expr.items():
+                pred = self.name2pred.get(pred_name, None)
+                if not pred:
+                    raise ValueError(f'Predicate {pred_name} not found')
+                new_expr[pred] = coef
+            ccs.append((new_expr, comparator, param))
+        cardinality_constraint = CardinalityConstraint(ccs)
 
         return sentence, domain, weightings, cardinality_constraint
 

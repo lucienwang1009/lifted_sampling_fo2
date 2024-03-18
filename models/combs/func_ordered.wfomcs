@@ -1,0 +1,15 @@
+ExactlyOne[Dom, Img] &
+\forall X: (\exists Y: (Dom(X) -> F(X,Y))) &
+\forall X: (\forall Y: (F(X,Y) -> (Dom(X) & Img(Y)))) &
+\forall X: (~Perm(X, X)) &
+\forall X: (\exists_{=1} Y: (Perm(X, Y))) &
+\forall Y: (\exists_{=1} X: (Perm(X, Y))) &
+\forall X: (\forall Y: (Pred(X, Y) -> Perm(X, Y)))
+# \forall X: (\forall Y: (Pred(X, Y) -> LEQ(X, Y)))
+
+
+domain = 6
+|Dom| = 3
+|Img| = 3
+|F| - |Dom| = 0
+|Pred| = 5

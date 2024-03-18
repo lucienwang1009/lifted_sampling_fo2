@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
+import functools
+from typing import Callable, Iterable, Union
 from collections import OrderedDict
 from PrettyPrint import PrettyPrintTree
 

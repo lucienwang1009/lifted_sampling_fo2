@@ -83,6 +83,11 @@ class Cell(object):
         return self.__str__()
 
 
+class CellClique(list):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
 class TwoTable(object):
     def __init__(self, models: dict[frozenset[AtomicFormula], RingElement],
                  gnd_lits: frozenset[AtomicFormula]):

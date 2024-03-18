@@ -2,6 +2,9 @@ from __future__ import annotations
 from collections import defaultdict
 
 from enum import Enum
+from functools import reduce
+from itertools import product
+import math
 import os
 import argparse
 import logging
@@ -11,7 +14,9 @@ from logzero import logger
 from typing import Callable
 from contexttimer import Timer
 
-from sampling_fo2.cell_graph.cell_graph import OptimizedCellGraph
+from sampling_fo2.cell_graph.cell_graph import OptimizedCellGraph, OptimizedCellGraphWithPC
+from sampling_fo2.network.constraint import PartitionConstraint
+from sampling_fo2.problems import WFOMCSProblem
 
 from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
     multinomial_less_than, RingElement, Rational, round_rational
@@ -26,6 +31,7 @@ class Algo(Enum):
     STANDARD = 'standard'
     FASTER = 'faster'
     FASTERv2 = 'fasterv2'
+    INCREMENTAL = 'incremental'
 
     def __str__(self):
         return self.value
@@ -79,13 +85,82 @@ def get_config_weight_standard(cell_graph: CellGraph,
     return res
 
 
-def faster_wfomc(formula: QFFormula,
-               domain: set[Const],
-               get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
-               modified_cell_sysmmetry: bool = False) -> RingElement:
+def faster_wfomc_with_pc(formula: QFFormula,
+                 domain: set[Const],
+                 get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
+                 partition_constraint: PartitionConstraint) -> RingElement:
     domain_size = len(domain)
     with Timer() as t:
-        opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size, modified_cell_sysmmetry)
+        opt_cell_graph = OptimizedCellGraphWithPC(
+            formula, get_weight, domain_size, partition_constraint
+        )
+    logger.info('Optimized cell graph construction time: %s', t.elapsed)
+
+    cliques = opt_cell_graph.cliques
+    nonind = opt_cell_graph.nonind
+    nonind_map = opt_cell_graph.nonind_map
+
+    pred_partitions: list[list[int]] = list(num for _, num in partition_constraint.partition)
+    # partition to cliques
+    partition_cliques: dict[int, list[int]] = opt_cell_graph.partition_cliques
+
+    res = Rational(0, 1)
+    with Timer() as t:
+        for configs in product(
+            *(list(multinomial_less_than(len(partition_cliques[idx]), constrained_num)) for
+              idx, constrained_num in enumerate(pred_partitions))
+        ):
+            coef = Rational(1, 1)
+            remainings = list()
+            # config for the cliques
+            overall_config = list(0 for _ in range(len(cliques)))
+            # {clique_idx: [number of elements of pred1, pred2, ..., predk]}
+            clique_configs = defaultdict(list)
+            for idx, (constrained_num, config) in enumerate(zip(pred_partitions, configs)):
+                remainings.append(constrained_num - sum(config))
+                mu = tuple(config) + (constrained_num - sum(config), )
+                coef = coef * MultinomialCoefficients.coef(mu)
+                for num, clique_idx in zip(config, partition_cliques[idx]):
+                    overall_config[clique_idx] = overall_config[clique_idx] + num
+                    clique_configs[clique_idx].append(num)
+
+            body = opt_cell_graph.get_i1_weight(
+                remainings, overall_config
+            )
+
+            for i, clique1 in enumerate(cliques):
+                for j, clique2 in enumerate(cliques):
+                    if i in nonind and j in nonind:
+                        if i < j:
+                            body = body * opt_cell_graph.get_two_table_weight(
+                                (clique1[0], clique2[0])
+                            ) ** (overall_config[nonind_map[i]] *
+                                  overall_config[nonind_map[j]])
+
+            for l in nonind:
+                body = body * opt_cell_graph.get_J_term(
+                    l, tuple(clique_configs[nonind_map[l]])
+                )
+            res = res + coef * body
+
+            # opt_cell_graph.setup_term_cache()
+            # res = res + coef * body
+            # mul = opt_cell_graph.get_term(len(i2_ind), 0, partition)
+            # res = res + coef * mul * body
+    logger.info('WFOMC time: %s', t.elapsed)
+
+    return res
+
+
+def faster_wfomc(formula: QFFormula,
+                 domain: set[Const],
+                 get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
+                 modified_cell_sysmmetry: bool = False) -> RingElement:
+    domain_size = len(domain)
+    with Timer() as t:
+        opt_cell_graph = OptimizedCellGraph(
+            formula, get_weight, domain_size, modified_cell_sysmmetry
+        )
     logger.info('Optimized cell graph construction time: %s', t.elapsed)
 
     cliques = opt_cell_graph.cliques
@@ -98,7 +173,7 @@ def faster_wfomc(formula: QFFormula,
         for partition in multinomial_less_than(len(nonind), domain_size):
             mu = tuple(partition)
             if sum(partition) < domain_size:
-                mu = mu + (domain_size - sum(partition),)
+                mu = mu + (domain_size - sum(partition), )
             coef = MultinomialCoefficients.coef(mu)
             body = Rational(1, 1)
 
@@ -135,7 +210,6 @@ def standard_wfomc(formula: QFFormula,
     cells = cell_graph.get_cells()
     n_cells = len(cells)
     domain_size = len(domain)
-    MultinomialCoefficients.setup(domain_size)
 
     res = Rational(0, 1)
     for partition in multinomial(n_cells, domain_size):
@@ -149,6 +223,46 @@ def standard_wfomc(formula: QFFormula,
             cell_graph, cell_config
         )
     return res
+
+
+def incremental_wfomc(formula: QFFormula,
+                      domain: set[Const],
+                      get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
+                      leq_pred: Pred = None) -> RingElement:
+    cell_graph = CellGraph(formula, get_weight, leq_pred)
+    # cell_graph.show()
+    cells = cell_graph.get_cells()
+    n_cells = len(cells)
+    domain_size = len(domain)
+
+    table = dict(
+        (tuple(int(k == i) for k in range(n_cells)),
+         cell_graph.get_cell_weight(cell))
+        for i, cell in enumerate(cells)
+    )
+    for _ in range(domain_size - 1):
+        old_table = table
+        table = dict()
+        for j, cell in enumerate(cells):
+            w = cell_graph.get_cell_weight(cell)
+            for ivec, w_old in old_table.items():
+                w_new = w_old * w * reduce(
+                    lambda x, y: x * y,
+                    (cell_graph.get_two_table_weight((cell, cells[k])) ** int(ivec[k]) for k in range(n_cells)),
+                    Rational(1, 1)
+                )
+                ivec = list(ivec)
+                ivec[j] += 1
+                ivec = tuple(ivec)
+
+                w_new = w_new + table.get(ivec, Rational(0, 1))
+                table[tuple(ivec)] = w_new
+    ret = sum(table.values())
+
+    # if leq_pred is not None:
+    #     ret *= Rational(math.factorial(domain_size), 1)
+    return ret
+
 
 
 def precompute_ext_weight(cell_graph: CellGraph, domain_size: int,
@@ -195,20 +309,51 @@ def precompute_ext_weight(cell_graph: CellGraph, domain_size: int,
     return existential_weights
 
 
-def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
-    if algo == Algo.STANDARD:
-        res = standard_wfomc(
-            context.formula, context.domain, context.get_weight
-        )
-    elif algo == Algo.FASTER:
-        res = faster_wfomc(
-            context.formula, context.domain, context.get_weight
-        )
-    elif algo == Algo.FASTERv2:
-        res = faster_wfomc(
-            context.formula, context.domain, context.get_weight, True
-        )
+def wfomc(problem: WFOMCSProblem, algo: Algo = Algo.STANDARD,
+          use_partition_constraint: bool = False) -> Rational:
+    if use_partition_constraint:
+        algo = Algo.FASTERv2
+    # both standard and faster WFOMCs need precomputation
+    if algo == Algo.STANDARD or algo == Algo.FASTER or \
+            algo == algo.FASTERv2:
+        MultinomialCoefficients.setup(len(problem.domain))
+
+    context = WFOMCContext(problem, use_partition_constraint)
+    leq_pred = Pred('LEQ', 2)
+    if leq_pred in context.formula.preds():
+        logger.info('Linear order axiom with the predicate LEQ is found')
+        logger.info('Invoke incremental WFOMC')
+        algo = Algo.INCREMENTAL
+    else:
+        leq_pred = None
+
+    with Timer() as t:
+        if algo == Algo.STANDARD:
+            res = standard_wfomc(
+                context.formula, context.domain, context.get_weight
+            )
+        elif algo == Algo.FASTER:
+            res = faster_wfomc(
+                context.formula, context.domain, context.get_weight
+            )
+        elif algo == Algo.FASTERv2:
+            if context.contain_partition_constraint():
+                res = faster_wfomc_with_pc(
+                    context.formula, context.domain,
+                    context.get_weight,
+                    context.partition_constraint,
+                )
+            else:
+                res = faster_wfomc(
+                    context.formula, context.domain, context.get_weight, True
+                )
+        elif algo == Algo.INCREMENTAL:
+            res = incremental_wfomc(
+                context.formula, context.domain,
+                context.get_weight, leq_pred
+            )
     res = context.decode_result(res)
+    logger.info('WFOMC time: %s', t.elapsed)
     return res
 
 
@@ -253,6 +398,9 @@ def parse_args():
                         default='./check-points')
     parser.add_argument('--algo', '-a', type=Algo,
                         choices=list(Algo), default=Algo.FASTER)
+    parser.add_argument('--use_partition_constraint', '-p',
+                        action='store_true', default=False,
+                        help='use partition constraint to handle unary evidence')
     parser.add_argument('--domain_recursive',
                         action='store_true', default=False,
                         help='use domain recursive algorithm '
@@ -276,11 +424,10 @@ if __name__ == '__main__':
 
     with Timer() as t:
         problem = parse_input(args.input)
-    context = WFOMCContext(problem)
     logger.info('Parse input: %ss', t)
 
     res = wfomc(
-        context, algo=args.algo
+        problem, algo=args.algo, use_partition_constraint=args.use_partition_constraint,
     )
     logger.info('WFOMC (arbitrary precision): %s', res)
     round_val = round_rational(res)

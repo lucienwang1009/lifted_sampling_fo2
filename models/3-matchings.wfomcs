@@ -1,0 +1,13 @@
+\forall X: (~E1(X, X) & ~E2(X,X) & ~E3(X, X))
+& \forall X: (\forall Y: (E1(X, Y) -> E1(Y, X)))
+& \forall X: (\forall Y: (E2(X, Y) -> E2(Y, X)))
+& \forall X: (\forall Y: (E3(X, Y) -> E3(Y, X)))
+& \forall X: (\exists_{=1} Y: (E1(X, Y)))
+& \forall X: (\exists_{=1} Y: (E2(X, Y)))
+& \forall X: (\exists_{=1} Y: (E3(X, Y)))
+& \forall X: (\forall Y: (E1(X, Y) -> ~E2(X, Y)))
+& \forall X: (\forall Y: (E1(X, Y) -> ~E3(X, Y)))
+& \forall X: (\forall Y: (E2(X, Y) -> ~E3(X, Y)))
+
+
+domain = 5

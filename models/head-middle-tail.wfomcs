@@ -1,0 +1,6 @@
+\forall X: (A(X) | B(X)) &
+\forall X: (\forall Y: (((A(Y) & LEQ(X, Y)) -> A(X)) & 
+                         ((B(X) & LEQ(X, Y)) -> B(Y))))
+
+domain = 5
+|A| = 2

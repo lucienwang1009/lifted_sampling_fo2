@@ -1,0 +1,12 @@
+ExactlyOne[E, G, F] &
+\forall X: (~Perm(X,X)) &
+\forall X: (\exists Y: (Perm(X, Y))) &
+\forall Y: (\exists X: (Perm(X, Y))) &
+\forall X: (Tail(X) <-> (\forall Y: (LEQ(Y,X)))) &
+\forall X: (\forall Y: (~Tail(X) & Perm(X,Y) -> LEQ(X,Y)))
+
+domain = 9
+|Perm| = 9
+|E| = 3
+|G| = 4
+|F| = 2

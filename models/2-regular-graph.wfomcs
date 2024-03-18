@@ -1,9 +1,27 @@
 \forall X: (~E(X,X)) &
 \forall X: (\forall Y: ((E(X,Y) -> E(Y,X)) &
-                        (E(X,Y) <-> (F1(X,Y) | F2(X,Y))) &
-                        (~F1(X, Y) | ~F2(X,Y)))) &
-\forall X: (\exists Y: (F1(X,Y))) & 
-\forall X: (\exists Y: (F2(X,Y)))
+                        (E(X,Y) <-> (F1(X,Y) | F2(X,Y) | F3(X,Y))) &
+                        (~F1(X, Y) | ~F2(X,Y)) & (~F1(X, Y) | ~F3(X, Y)) & (~F2(X,Y) | ~F3(X, Y)))) &
+\forall X: (Z1(X) -> (\exists Y: (F1(X,Y)))) & 
+\forall X: (Z1(X) -> (\exists Y: (F2(X,Y)))) & 
+\forall X: (Z1(X) -> (\exists Y: (F3(X,Y)))) & 
+\forall X: (Z2(X) -> (\exists Y: (F1(X,Y)))) & 
+\forall X: (Z2(X) -> (\exists Y: (F2(X,Y)))) &
+\forall X: (Z3(X) -> (\exists Y: (F1(X,Y)))) &
+\forall X: (Z3(X) -> (\exists Y: (F3(X,Y)))) &
+\forall X: (Z4(X) -> (\exists Y: (F2(X,Y)))) &
+\forall X: (Z4(X) -> (\exists Y: (F3(X,Y)))) &
+\forall X: (Z5(X) -> (\exists Y: (F1(X,Y)))) &
+\forall X: (Z6(X) -> (\exists Y: (F2(X,Y)))) &
+\forall X: (Z7(X) -> (\exists Y: (F3(X,Y)))) &
+ExactlyOne[Z1, Z2, Z3, Z4, Z5, Z6, Z7, Z8]
 
+<<<<<<< HEAD
 V = 10
 |E| = 20
+=======
+V = 6
+|E| = 12
+|Z5| = 2
+|Z4| = 4
+>>>>>>> for combinatorics backup

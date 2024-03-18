@@ -1,0 +1,12 @@
+ExactlyOne[O, E] &
+\forall X: (~Perm(X,X)) &
+\forall X: (\exists Y: (Perm(X, Y))) &
+\forall Y: (\exists X: (Perm(X, Y))) &
+\forall X: (\forall Y: (Pred(X,Y) -> Perm(X,Y))) &
+\forall X: (\forall Y: (Pred(X,Y) -> LEQ(X,Y))) &
+\forall X: (\forall Y: (O(X) & Pred(X,Y) -> E(Y))) &
+\forall X: (\forall Y: (E(X) & Pred(X,Y) -> O(Y)))
+
+domain = 6
+|Perm| = 6
+|Pred| = 5

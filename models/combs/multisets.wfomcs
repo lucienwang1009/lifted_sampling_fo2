@@ -1,0 +1,8 @@
+ExactlyOne[R, G] &
+\forall X: (S(X) -> (R(X) | G(X))) &
+\forall X: (SG(X) <-> (S(X) & G(X)))
+
+shapes = 7
+|G| = 3
+|S| = 4
+|SG| = 0

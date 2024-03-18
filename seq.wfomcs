@@ -1,0 +1,16 @@
+ExactlyOne[C, NC, B] &
+\forall X: (A(X) -> (C(X) | NC(X))) &
+# \forall X: (D(X) | ~D(X)) &
+\forall X: (LEQ(X,X)) &
+# \forall X: (\forall Y: (A(X) & ~A(Y) -> LEQ(X, Y))) &
+\forall X: (\forall Y: (A(X) & Idx(X) & LEQ(Y, X) <-> Card(Y,X))) &
+\forall X: (Idx(X) -> C(X))
+
+domain = 5
+|NC| = 1
+|C| = 2
+|A| = 3
+|B| = 2
+|Card| = 1
+# |Idx| = 1
+# |D| - |A| = 0

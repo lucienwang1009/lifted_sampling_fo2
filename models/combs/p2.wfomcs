@@ -1,0 +1,14 @@
+ExactlyOne[gt, rt, bg, rs, bs] &
+ExactlyOne[g1, g2, g3] &
+\forall X: ((g1(X) & gt(X)) <-> gt1(X))
+
+shapes = 7
+|gt| = 3
+|rt| = 1
+|bg| = 1
+|rs| = 1
+|bs| = 1
+|g1| > 0
+|g2| > 0
+|g3| > 0
+|gt1| = 3
