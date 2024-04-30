@@ -147,7 +147,11 @@ class Formula(object):
     """
     Base class for first-order logic formulas
     """
-    ...
+    def vars(self) -> frozenset[Var]:
+        raise NotImplementedError
+
+    def free_vars(self) -> frozenset[Var]:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -232,6 +236,10 @@ class QFFormula(Formula):
         for atom in self.atoms():
             atom_substitutions[atom.expr] = atom.substitute(substitution).expr
         return QFFormula(backend.substitute(self.expr, atom_substitutions))
+
+    def eval(self, truth_val: dict[Term, bool]) -> bool:
+        truth_val = {k.expr: v for k, v in truth_val.items()}
+        return backend.eval(self.expr, truth_val)
 
     def simplify(self) -> QFFormula:
         return QFFormula(backend.simplify(self.expr))
@@ -492,9 +500,11 @@ class QuantifiedFormula(Formula):
 
 
 class CompoundFormula(Formula):
-    def __init__(self, op_name: str, op: Callable[..., Formula]):
+    def __init__(self, op_name: str, op: Callable[..., Formula],
+                 formulas: list[Formula]):
         self.op_name: str = op_name
         self.op: Callable[..., Formula] = op
+        self.formulas: list[Formula] = formulas
 
     def __invert__(self):
         return Negation(self)
@@ -511,10 +521,17 @@ class CompoundFormula(Formula):
     def equivalent(self, other):
         return Equivalence(self, other)
 
+    # NOTE(lucien): vars and free_vars might be wrong but work well with current formulas
+    def vars(self) -> frozenset[Var]:
+        return frozenset().union(*[formula.vars() for formula in self.formulas])
+
+    def free_vars(self) -> frozenset[Var]:
+        return frozenset().union(*[formula.free_vars() for formula in self.formulas])
+
 
 class Negation(CompoundFormula):
     def __init__(self, formula: Formula) -> None:
-        super().__init__('~', lambda x: ~x)
+        super().__init__('~', lambda x: ~x, [formula])
         self.sub_formula: Formula = formula
 
     def __str__(self):
@@ -523,14 +540,11 @@ class Negation(CompoundFormula):
     def __repr__(self):
         return str(self)
 
-    def vars(self) -> frozenset[Var]:
-        return self.sub_formula.vars()
-
 
 class BinaryFormula(CompoundFormula):
     def __init__(self, op_name: str, op: Callable[[Formula, Formula], Formula],
                  left: Formula, right: Formula) -> None:
-        super().__init__(op_name, op)
+        super().__init__(op_name, op, [left, right])
         self.left_formula: Formula = left
         self.right_formula: Formula = right
 
@@ -539,9 +553,6 @@ class BinaryFormula(CompoundFormula):
 
     def __repr__(self):
         return str(self)
-
-    def vars(self) -> frozenset[Var]:
-        return self.left_formula.vars() | self.right_formula.vars()
 
 
 class Conjunction(BinaryFormula):

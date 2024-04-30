@@ -61,5 +61,8 @@ def substitute(expr: Expr, mapping: dict[Symbol, Symbol]) -> Expr:
     with sympy.evaluate(False):
         return expr.subs(mapping)
 
+def eval(expr: Expr, mapping: dict[Symbol, bool]) -> bool:
+    return expr.subs(mapping)
+
 def simplify(symbol: Symbol) -> Symbol:
     return symbol.simplify()
