@@ -325,7 +325,7 @@ class OptimizedCellGraph(CellGraph):
                 self_loop.add(i)
 
         non_self_loop = g.nodes - self_loop
-        if non_self_loop:
+        if len(non_self_loop) == 0:
             i1_ind = set()
         else:
             i1_ind = set(nx.maximal_independent_set(g, nodes= g.nodes - self_loop))
