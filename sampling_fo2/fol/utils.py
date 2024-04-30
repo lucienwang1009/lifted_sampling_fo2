@@ -46,6 +46,15 @@ def pad_vars(vars: frozenset[Var], arity: int) -> frozenset[Var]:
     return frozenset(list(ret_vars)[:arity])
 
 
+def universally_quantify(
+    vars: frozenset[Var],
+    formula: Formula
+) -> QuantifiedFormula:
+    for v in vars:
+        formula = QuantifiedFormula(Universal(v), formula)
+    return formula
+
+
 def exactly_one_qf(preds: list[Pred]) -> QFFormula:
     if len(preds) == 1:
         return top

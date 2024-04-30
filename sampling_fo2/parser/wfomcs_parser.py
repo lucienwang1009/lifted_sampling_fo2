@@ -34,7 +34,9 @@ class WFOMSTransformer(FOLTransformer, CCTransfomer):
     def domain(self, args):
         domain_name, domain_spec = args
         if isinstance(domain_spec, int):
-            domain_spec = set(f'{domain_name}{i}' for i in range(domain_spec))
+            domain_spec = set(
+                Const(f'{domain_name}{i}') for i in range(domain_spec)
+            )
         return (domain_name, domain_spec)
 
     def weightings(self, args):

@@ -1,0 +1,12 @@
+~friends(X,X).
+friends(X,Y) -> friends(Y,X).
+2.7 friends(X,Y) & smokes(X) -> smokes(Y)
+
+# everyone has at least 1 friend
+# \forall X: (\exists Y: (friends(X,Y))).
+
+# every smoker is friend with at least 1 other smoker
+# \forall X: (smokes(X) -> (\exists Y: (smokes(Y) & friends(X, Y)))).
+
+person = 10
+|smokes| = 3

@@ -96,7 +96,7 @@ class CardinalityConstraint(Constraint):
                 comp = '=='
             validator_list.append(f'{single_validator} {comp} {param}')
         self.validator = ' and '.join(validator_list)
-        logger.info('cardinality validator: \n%s', self.validator)
+        logger.debug('cardinality validator: \n%s', self.validator)
 
     def __str__(self):
         s = ''

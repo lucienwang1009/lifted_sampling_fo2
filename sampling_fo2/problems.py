@@ -5,6 +5,7 @@ from sampling_fo2.fol.syntax import AtomicFormula, Const, Pred, top, AUXILIARY_P
     Formula, QuantifiedFormula, Universal, Equivalence
 from sampling_fo2.fol.utils import new_predicate
 from sampling_fo2.network.constraint import CardinalityConstraint
+from sampling_fo2.network.mln import MLN
 from sampling_fo2.utils.polynomial import Rational
 from fractions import Fraction
 import math
@@ -41,33 +42,17 @@ class WFOMCSProblem(object):
         return str(self)
 
 
-class MLNProblem(object):
-    """
-    A Markov Logic Network problem.
-    """
-
-    def __init__(self, rules: tuple[list[tuple[Rational, Rational]], list[Formula]],
-                 domain: set[Const],
-                 cardinality_constraint: CardinalityConstraint):
-        self.rules = rules
-        # self.formulas: rules[1]
-        # self.formula_weights: = dict(zip(rules[1], rules[0]))
-        self.domain: set[Const] = domain
-        self.cardinality_constraint: CardinalityConstraint = cardinality_constraint
-
-
-def MLN_to_WFOMC(mln: MLNProblem):
+def MLN_to_WFOMC(mln: MLN):
     sentence = top
     weightings: dict[Pred, tuple[Rational, Rational]] = dict()
-    for weighting, formula in zip(*mln.rules):
+    for weighted_formula in mln:
+        weight, formula = weighted_formula.weight, weighted_formula.formula
         free_vars = formula.free_vars()
-        if weighting != float('inf'):
+        if not weighted_formula.is_hard():
             aux_pred = new_predicate(len(free_vars), AUXILIARY_PRED_NAME)
             formula = Equivalence(formula, aux_pred(*free_vars))
-            weightings[aux_pred] = (Rational(Fraction(math.exp(weighting)).numerator,
-                                             Fraction(math.exp(weighting)).denominator), Rational(1, 1))
-        for free_var in free_vars:
-            formula = QuantifiedFormula(Universal(free_var), formula)
+            weightings[aux_pred] = (Rational(Fraction(math.exp(weight)).numerator,
+                                             Fraction(math.exp(weight)).denominator), Rational(1, 1))
         sentence = sentence & formula
 
     try:

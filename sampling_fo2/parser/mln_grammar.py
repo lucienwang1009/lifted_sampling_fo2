@@ -14,8 +14,8 @@ rule_grammar = r"""
     rules: rule*
     rule: hard_rule | soft_rule
     hard_rule: ffl "."
-    soft_rule: weighting ffl
-    weighting: SIGNED_NUMBER
+    soft_rule: weight ffl
+    weight: SIGNED_NUMBER
 """ + function_free_logic_grammar
 
 grammar = r"""

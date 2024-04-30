@@ -1,5 +1,5 @@
 from lark import Lark
-from sampling_fo2.network.mln import MLN
+from sampling_fo2.network.mln import MLN, WeightedFormula
 from sampling_fo2.fol.syntax import Const, Pred
 from sampling_fo2.network.constraint import CardinalityConstraint
 from sampling_fo2.parser.cardinality_constraints_parser import CCTransfomer
@@ -8,7 +8,6 @@ from sampling_fo2.utils import Rational
 
 
 from sampling_fo2.parser.fol_parser import FOLTransformer
-from sampling_fo2.problems import MLNProblem
 
 from sampling_fo2.fol.syntax import *
 
@@ -32,24 +31,20 @@ class MLNTransformer(FOLTransformer, CCTransfomer):
     def domain(self, args):
         domain_name, domain_spec = args
         if isinstance(domain_spec, int):
-            domain_spec = set(f'{domain_name}{i}' for i in range(domain_spec))
+            domain_spec = set(
+                Const(f'{domain_name}{i}') for i in range(domain_spec)
+            )
         return (domain_name, domain_spec)
 
-    def weighting(self, args):
+    def weight(self, args):
         return float(args[0])
 
     def rules(self, args):
-        rules = args
-        weightings = []
-        formulas = []
-        for w, r in rules:
-            weightings.append(w)
-            formulas.append(r)
-        return weightings, formulas
+        return args
 
     def rule(self, args):
         w, r = args[0]
-        return w, r
+        return WeightedFormula(r, w)
 
     def hard_rule(self, args):
         return float('inf'), args[0]
@@ -58,7 +53,7 @@ class MLNTransformer(FOLTransformer, CCTransfomer):
         return args[0], args[1]
 
     def mln(self, args):
-        rules = args[0]
+        weighted_formulas = args[0]
         domain = args[1][1] # Only one definition domain is supported
         cardinality_constraints = args[2]
 
@@ -77,16 +72,13 @@ class MLNTransformer(FOLTransformer, CCTransfomer):
         else:
             cardinality_constraint = None
 
-        return rules, domain, cardinality_constraint
+        mln = MLN(weighted_formulas, domain, cardinality_constraint)
+        return mln
 
-def parse(text: str) -> MLNProblem:
+def parse(text: str) -> MLN:
     mln_parser = Lark(grammar,
                         start='mln')
     tree = mln_parser.parse(text)
-    (rules, domain, cardinality_constraint) = MLNTransformer().transform(tree)
+    mln = MLNTransformer().transform(tree)
 
-    return MLNProblem(
-        rules,
-        domain,
-        cardinality_constraint
-    )
+    return mln
