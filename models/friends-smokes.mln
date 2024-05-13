@@ -7,6 +7,6 @@ friends(X,Y) -> friends(Y,X).
 # write a hard rule by the same syntax as a WFOMC sentence
 # \forall X: (\exists Y: (friends(X,Y))).
 
-person = 3
+person = 10
 # optional cardinality constraint
 # |smokes| = 1

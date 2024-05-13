@@ -233,6 +233,12 @@ def count_distribution(context: WFOMCContext, preds: list[Pred],
         res = faster_wfomc(
             context.formula, context.domain, context.get_weight
         )
+    elif algo == Algo.FASTERv2:
+        res = faster_wfomc(
+            context.formula, context.domain, context.get_weight, True
+        )
+    else:
+        raise ValueError('Unknown algorithm: {}'.format(algo))
 
     symbols = [pred2sym[pred] for pred in preds]
     count_dist = {}
