@@ -55,7 +55,7 @@ if __name__ == '__main__':
     logger.debug(f'MLN: {mln}')
     logger.debug(f'Database: {db}')
     if args.prob:
-        prob = get_prob(mln, db)
+        prob = get_log_prob(mln, db)
         print(prob)
     else:
         raise NotImplementedError('Only probability inference is supported')
