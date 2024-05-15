@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 from collections import OrderedDict
 from decimal import Decimal
@@ -9,9 +7,9 @@ import math
 import logzero
 import numpy as np
 
-from symengine.functions import exp
+from symengine.functions import log
 from logzero import logger
-from sampling_fo2.utils.polynomial import round_rational
+from sampling_fo2.utils.polynomial import round_rational, to_rational
 from sampling_fo2.wfomc import Algo, count_distribution
 from sampling_fo2.context.wfomc_context import WFOMCContext
 from sampling_fo2.fol.sc2 import to_sc2
@@ -25,7 +23,7 @@ from sampling_fo2.utils import Rational
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Compute the maximum and minimum log probability of a given MLN',
+        description='Compute the entropy of a given MLN',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('--input', '-i', type=str, required=True,
@@ -62,31 +60,28 @@ def to_wfomcs(mln: MLN) -> tuple[WFOMCSProblem, list[Pred], list[Decimal]]:
                          mln.cardinality_constraint), aux_preds, formula_weight
 
 
-def main(mln_file: str) -> tuple[Decimal, Decimal]:
+def main(mln_file: str) -> float:
     if not mln_file.endswith('.mln'):
         raise RuntimeError(f'Only support .mln file: {input_file}')
     with open(mln_file, 'r') as f:
         mln = mln_parse(f.read())
     problem, aux_preds, formula_weight = to_wfomcs(mln)
+    # reset the weight for every predicate to 1
+    problem.weights = dict()
     context = WFOMCContext(problem)
     cdist = count_distribution(context, aux_preds, Algo.FASTERv2)
-    wfomc = sum(cdist.values())
-    wfomc_ln = round_rational(wfomc).ln()
-    max_w = float('-inf')
-    min_w = float('inf')
-    for cc, weight in cdist.items():
-        if weight == 0:
-            continue
-        w = sum(
-            Decimal(int(n)) * fw for n, fw in zip(cc, formula_weight)
+    wfomc = Decimal(0)
+    unnormalized = Decimal(0)
+    for cc, num in cdist.items():
+        cc_w_dot = sum(
+            Decimal(int(n)) * w for n, w in zip(cc, formula_weight)
         )
-        if w > max_w:
-            max_w = w
-        if w < min_w:
-            min_w = w
-    max_log_prob = max_w - wfomc_ln
-    min_log_prob = min_w - wfomc_ln
-    return max_log_prob, min_log_prob
+        unnormalized = unnormalized + (
+            cc_w_dot.exp() * Decimal(int(num)) * cc_w_dot
+        )
+        wfomc = wfomc + cc_w_dot.exp() * Decimal(int(num))
+    entropy = wfomc.ln() - unnormalized / wfomc
+    return entropy
 
 
 if __name__ == '__main__':
@@ -96,6 +91,5 @@ if __name__ == '__main__':
     else:
         logzero.loglevel(logging.INFO)
     input_file = args.input
-    max_prob, min_prob = main(input_file)
-    logger.info(f'Maximum probability: {max_prob}')
-    logger.info(f'Minimum probability: {min_prob}')
+    entropy = main(input_file)
+    logger.info(f'Entropy: {entropy}')
