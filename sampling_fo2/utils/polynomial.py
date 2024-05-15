@@ -31,6 +31,10 @@ def coeff_monomial(polynomial, monomial) -> Rational:
     return coeff
 
 
+def to_rational(n: float) -> Rational:
+    return Rational(*Decimal(n).as_integer_ratio())
+
+
 def round_rational(n: Rational) -> Decimal:
     n = Decimal(int(n.p)) / Decimal(int(n.q))
     return n
