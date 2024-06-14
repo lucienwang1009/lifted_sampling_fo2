@@ -106,6 +106,101 @@ class Inferencer:
         if self.ccs:
             self.ccs.build()
 
+    def satisfied_groundings(self, db: Database) -> list[int]:
+        """
+        Compute the number of groundings of each formula that are satisfied by the database.
+        :param db: The database.
+        :return: The number of groundings of each formula that are satisfied by the database.
+        """
+        if db.preds.difference(self.preds):
+            raise ValueError('Database contains predicates not in the MLN: %s',
+                             db.preds.difference(self.preds))
+        if db.domain.difference(self.domain):
+            raise ValueError('Database contains constants not in the MLN: %s',
+                             db.domain.difference(self.domain))
+        truth_substs = dict()
+        for i, c1 in enumerate(self.domain):
+            for j, c2 in enumerate(self.domain):
+                if i >= j:
+                    continue
+                substitution = {a: c1, b: c2}
+                reverse_substitution = {c1: a, c2: b}
+                ground_atoms = set(
+                    atom.substitute(substitution)
+                    for atom in self.all_ground_atoms
+                )
+                truth_subst = dict()
+                for atom in ground_atoms:
+                    reverse_atom = atom.substitute(reverse_substitution)
+                    if atom in db.facts:
+                        truth_subst[reverse_atom] = True
+                    else:
+                        truth_subst[reverse_atom] = False
+                truth_substs[(c1, c2)] = truth_subst
+                substitution = {a: c2, b: c1}
+                reverse_substitution = {c2: a, c1: b}
+                ground_atoms = set(
+                    atom.substitute(substitution)
+                    for atom in self.all_ground_atoms
+                )
+                truth_subst = dict()
+                for atom in ground_atoms:
+                    reverse_atom = atom.substitute(reverse_substitution)
+                    if atom in db.facts:
+                        truth_subst[reverse_atom] = True
+                    else:
+                        truth_subst[reverse_atom] = False
+                truth_substs[(c2, c1)] = truth_subst
+        for c in self.domain:
+            substitution = {a: c, b: c}
+            reverse_substitution = {c: a}
+            ground_atoms = set(
+                atom.substitute(substitution)
+                for atom in self.all_ground_atoms
+            )
+            truth_subst = dict()
+            for atom in ground_atoms:
+                reverse_atom = atom.substitute(reverse_substitution)
+                if atom in db.facts:
+                    truth_subst[reverse_atom] = True
+                else:
+                    truth_subst[reverse_atom] = False
+            truth_substs[(c, c)] = truth_subst
+        # satisfications of formulas on each pair of constants
+        sats = []
+        for formulas in self.ground_formulas:
+            if len(formulas) == 2:
+                formula_ab, formula_aa = formulas
+                sat = np.zeros((len(self.domain), len(self.domain)), dtype=bool)
+                for i, c1 in enumerate(self.domain):
+                    for j, c2 in enumerate(self.domain):
+                        if i != j:
+                            sat[i, j] = formula_ab.eval(truth_substs[(c1, c2)])
+                        else:
+                            sat[i, j] = formula_aa.eval(truth_substs[(c1, c2)])
+                sats.append(sat)
+            else:
+                formula = formulas[0]
+                sat = np.zeros((len(self.domain), ), dtype=bool)
+                for i, c in enumerate(self.domain):
+                    sat[i] = formula.eval(truth_substs[(c, c)])
+                sats.append(sat)
+        num_satisfied = []
+        for i, weighted_formula in enumerate(self.model):
+            formula = weighted_formula.formula
+            all_sat = sats[i]
+            quantifiers = self.formulas_quantifiers[i]
+            if weighted_formula.is_hard():
+                continue
+            for quantifier in quantifiers[::-1]:
+                if isinstance(quantifier, Universal):
+                    all_sat = np.all(all_sat, axis=-1)
+                if isinstance(quantifier, Existential):
+                    all_sat = np.any(all_sat, axis=-1)
+            N = all_sat.sum()
+            num_satisfied.append(N)
+        return num_satisfied
+
     def log_prob(self, db: Database):
         """
         Compute the log probability of the database given the MLN.

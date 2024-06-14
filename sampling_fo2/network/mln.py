@@ -57,6 +57,15 @@ class MLN(object):
             self.preds.update(w_formula.formula.preds())
         self.idx: int
 
+    def append(self, weighted_formula: WeightedFormula):
+        self.weighted_formulas.append(weighted_formula)
+        self.preds.update(weighted_formula.formula.preds())
+
+    def extend(self, weighted_formulas: List[WeightedFormula]):
+        self.weighted_formulas.extend(weighted_formulas)
+        for w_formula in weighted_formulas:
+            self.preds.update(w_formula.formula.preds())
+
     def __iter__(self):
         self.idx = 0
         return self

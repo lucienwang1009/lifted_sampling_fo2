@@ -245,6 +245,10 @@ def count_distribution(context: WFOMCContext, preds: list[Pred],
     res = expand(res)
     for degrees, coef in coeff_dict(res, symbols):
         count_dist[degrees] = coef
+    weight_sum = sum(count_dist.values())
+    count_dist = dict(
+        (k, v / weight_sum) for k, v in count_dist.items()
+    )
     return count_dist
 
 
