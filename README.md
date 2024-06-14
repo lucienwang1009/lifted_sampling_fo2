@@ -116,6 +116,25 @@ $ python sampling_fo2/wfomc.py -i [input]
 ## References
 
 ```
+@article{DBLP:journals/ai/WangPWK24,
+  author       = {Yuanhong Wang and
+                  Juhua Pu and
+                  Yuyi Wang and
+                  Ondrej Kuzelka},
+  title        = {Lifted algorithms for symmetric weighted first-order model sampling},
+  journal      = {Artif. Intell.},
+  volume       = {331},
+  pages        = {104114},
+  year         = {2024},
+  url          = {https://doi.org/10.1016/j.artint.2024.104114},
+  doi          = {10.1016/J.ARTINT.2024.104114},
+  timestamp    = {Fri, 31 May 2024 21:06:28 +0200},
+  biburl       = {https://dblp.org/rec/journals/ai/WangPWK24.bib},
+  bibsource    = {dblp computer science bibliography, https://dblp.org}
+}
+```
+
+```
 @inproceedings{DBLP:conf/lics/WangP0K23,
   author       = {Yuanhong Wang and
                   Juhua Pu and
