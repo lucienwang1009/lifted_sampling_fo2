@@ -112,9 +112,9 @@ class Inferencer:
         :param db: The database.
         :return: The number of groundings of each formula that are satisfied by the database.
         """
-        if db.preds.difference(self.preds):
-            raise ValueError('Database contains predicates not in the MLN: %s',
-                             db.preds.difference(self.preds))
+        # if db.preds.difference(self.preds):
+        #     raise ValueError('Database contains predicates not in the MLN: %s',
+        #                      db.preds.difference(self.preds))
         if db.domain.difference(self.domain):
             raise ValueError('Database contains constants not in the MLN: %s',
                              db.domain.difference(self.domain))

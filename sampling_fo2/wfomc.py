@@ -217,7 +217,7 @@ def count_distribution(context: WFOMCContext, preds: list[Pred],
         -> dict[tuple[int, ...], Rational]:
     pred2weight = {}
     pred2sym = {}
-    syms = create_vars('x0:{}'.format(len(preds)))
+    syms = create_vars('cnt0:{}'.format(len(preds)))
     for sym, pred in zip(syms, preds):
         if pred in pred2weight:
             continue
