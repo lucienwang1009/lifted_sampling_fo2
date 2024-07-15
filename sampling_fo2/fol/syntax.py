@@ -528,6 +528,9 @@ class CompoundFormula(Formula):
     def free_vars(self) -> frozenset[Var]:
         return frozenset().union(*[formula.free_vars() for formula in self.formulas])
 
+    def preds(self) -> frozenset[Pred]:
+        return frozenset().union(*[formula.preds() for formula in self.formulas])
+
 
 class Negation(CompoundFormula):
     def __init__(self, formula: Formula) -> None:
