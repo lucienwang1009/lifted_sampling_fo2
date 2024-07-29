@@ -241,10 +241,10 @@ def count_distribution(context: WFOMCContext, preds: list[Pred],
         raise ValueError('Unknown algorithm: {}'.format(algo))
 
     symbols = [pred2sym[pred] for pred in preds]
-    count_dist = {}
+    count_dist = defaultdict(lambda: 0)
     res = expand(res)
     for degrees, coef in coeff_dict(res, symbols):
-        count_dist[degrees] = coef
+        count_dist[degrees] += coef
     weight_sum = sum(count_dist.values())
     count_dist = dict(
         (k, v / weight_sum) for k, v in count_dist.items()
