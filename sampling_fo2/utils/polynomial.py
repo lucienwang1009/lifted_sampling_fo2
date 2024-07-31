@@ -57,7 +57,9 @@ def _get_degrees(monomial: Poly):
 def coeff_dict(p: Poly, gens: list[Symbol]) -> Generator[tuple[int], Rational, None]:
     for monomial, coeff in p.as_coefficients_dict().items():
         degrees = dict(_get_degrees(monomial))
-        yield tuple(degrees.get(sym, 0) for sym in gens), coeff
+        other_gens = set(degrees.keys()) - set(gens)
+        remaining = reduce(lambda a, b: a * b, (gen**degrees[gen] for gen in other_gens if gen is not None), 1)
+        yield tuple(degrees.get(sym, 0) for sym in gens), coeff * remaining
 
 
 def _choices_int_weights(population: Iterable, weights: Iterable[int], k=1):
