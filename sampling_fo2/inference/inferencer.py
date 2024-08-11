@@ -33,7 +33,7 @@ class Inferencer:
         self.all_ground_atoms: list[AtomicFormula] = []
         self.formulas_quantifiers: list[list[Quantifier]] = []
         # NOTE(lucien): use Decimal here, it would be more accurate
-        self.partition_function_ln: Decimal = 0.0
+        self.partition_function_ln: Decimal = Decimal(0.0)
 
         self.preprocess()
 
@@ -201,7 +201,7 @@ class Inferencer:
             num_satisfied.append(N)
         return num_satisfied
 
-    def log_prob(self, db: Database):
+    def log_prob(self, db: Database) -> Decimal:
         """
         Compute the log probability of the database given the MLN.
         :param db: The database.
@@ -298,7 +298,7 @@ class Inferencer:
             kwargs = dict((pred.name, cc) for pred, cc in cardinalities.items())
             if not eval(self.ccs.validator.format(**dict(kwargs))):
                 logger.debug('Cardinality constraints are not satisfied')
-                return float('-inf')
+                return Decimal('-inf')
         # hard rules must be satisfied, i.e.,
         # the formula must be true on all pairs of constants
         total_weight = 0.0
@@ -315,7 +315,7 @@ class Inferencer:
                 assert not all_sat.shape
                 if not all_sat:
                     logger.debug(f'Hard formula {formula} is not satisfied')
-                    return float('-inf')
+                    return Decimal('-inf')
             else:
                 for quantifier in quantifiers[::-1]:
                     if isinstance(quantifier, Universal):
