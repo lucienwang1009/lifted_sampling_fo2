@@ -8,7 +8,7 @@ from logzero import logger
 from math import exp
 
 from sampling_fo2.context.wfomc_context import WFOMCContext
-from sampling_fo2.fol.syntax import AtomicFormula, Const, Existential, QFFormula, \
+from sampling_fo2.fol.syntax import AtomicFormula, Const, Counting, Existential, QFFormula, \
     QuantifiedFormula, Quantifier, Universal, a, b
 from sampling_fo2.inference.db import Database
 from sampling_fo2.network.constraint import CardinalityConstraint
@@ -310,8 +310,14 @@ class Inferencer:
                 for quantifier in quantifiers[::-1]:
                     if isinstance(quantifier, Universal):
                         all_sat = np.all(all_sat, axis=-1)
-                    if isinstance(quantifier, Existential):
+                    elif isinstance(quantifier, Existential):
                         all_sat = np.any(all_sat, axis=-1)
+                    elif isinstance(quantifier, Counting):
+                        assert quantifier.comparator in ['='], 'Only equality is supported for counting quantifiers'
+                        all_sat = (np.sum(all_sat, axis=-1) == quantifier.count_param)
+                    else:
+                        raise ValueError(f'Unsupported quantifier {quantifier}')
+                # all_sat must be a scalar boolean
                 assert not all_sat.shape
                 if not all_sat:
                     logger.debug(f'Hard formula {formula} is not satisfied')
