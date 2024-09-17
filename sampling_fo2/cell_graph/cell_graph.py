@@ -3,8 +3,9 @@ from __future__ import annotations
 import pandas as pd
 import functools
 import networkx as nx
+from itertools import product
 
-from typing import Callable, Dict, FrozenSet, List, Tuple
+from typing import Callable, Dict, FrozenSet, Generator, List, Tuple
 from logzero import logger
 from sympy import Poly
 from copy import deepcopy
@@ -186,11 +187,11 @@ class CellGraph(object):
         for cell in self.cells:
             weight = Rational(1, 1)
             for i, pred in zip(cell.code, cell.preds):
-                if pred.arity > 0:
-                    if i:
-                        weight = weight * self.get_weight(pred)[0]
-                    else:
-                        weight = weight * self.get_weight(pred)[1]
+                assert pred.arity > 0, "Nullary predicates should have been removed"
+                if i:
+                    weight = weight * self.get_weight(pred)[0]
+                else:
+                    weight = weight * self.get_weight(pred)[1]
             weights[cell] = weight
         return weights
 
@@ -463,3 +464,38 @@ class OptimizedCellGraph(CellGraph):
                 mult = mult * self.get_d_term(l, n - ni, cur + 1)
                 ret = ret + mult
         return ret
+
+
+def build_cell_graphs(formula: QFFormula,
+                    get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
+                    optimized: bool = False,
+                    domain_size: int = 0,
+                    modified_cell_symmetry: bool = False) -> Generator[tuple[CellGraph, RingElement]]:
+    nullary_atoms = [atom for atom in formula.atoms() if atom.pred.arity == 0]
+    if len(nullary_atoms) == 0:
+        logger.info('No nullary atoms found, building a single cell graph')
+        if not optimized:
+            yield CellGraph(formula, get_weight), Rational(1, 1)
+        else:
+            yield OptimizedCellGraph(
+                formula, get_weight, domain_size, modified_cell_symmetry
+            ), Rational(1, 1)
+    else:
+        logger.info('Found nullary atoms %s', nullary_atoms)
+        for values in product(*([[True, False]] * len(nullary_atoms))):
+            substitution = dict(zip(nullary_atoms, values))
+            logger.info('Building cell graph with values %s', substitution)
+            subs_formula = formula.sub_nullary_atoms(substitution).simplify()
+            if not subs_formula.satisfiable():
+                logger.info('Formula is unsatisfiable, skipping')
+                continue
+            if not optimized:
+                cell_graph = CellGraph(subs_formula, get_weight)
+            else:
+                cell_graph = OptimizedCellGraph(
+                    subs_formula, get_weight, domain_size, modified_cell_symmetry
+                )
+            weight = Rational(1, 1)
+            for atom, val in zip(nullary_atoms, values):
+                weight = weight * (get_weight(atom.pred)[0] if val else get_weight(atom.pred)[1])
+            yield cell_graph, weight

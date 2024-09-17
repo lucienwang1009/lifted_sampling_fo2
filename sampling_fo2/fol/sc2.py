@@ -4,7 +4,7 @@ from functools import reduce
 from logzero import logger
 from typing import Callable, Union
 
-from sampling_fo2.fol.utils import new_scott_predicate
+from sampling_fo2.fol.utils import new_predicate, new_scott_predicate
 from .syntax import *
 from .syntax import FOLSyntaxError
 
@@ -270,6 +270,26 @@ def distribute_quantifier(formula: Formula) -> Formula:
     return formula
 
 
+@transformer("Replace disjunction", (Disjunction, ))
+def replace_disjunction(formula: Formula) -> Formula:
+    left = formula.left_formula
+    right = formula.right_formula
+    additional_formulas = []
+    if isinstance(left, QuantifiedFormula):
+        vars = left.free_vars()
+        aux_pred = new_predicate(len(vars), AUXILIARY_PRED_NAME)
+        aux_atom = aux_pred(*vars)
+        additional_formulas.append(left.equivalent(aux_atom))
+        left = aux_atom
+    if isinstance(right, QuantifiedFormula):
+        vars = right.free_vars()
+        aux_pred = new_predicate(len(vars), AUXILIARY_PRED_NAME)
+        aux_atom = aux_pred(*vars)
+        additional_formulas.append(right.equivalent(aux_atom))
+        right = aux_atom
+    return left | right, additional_formulas
+
+
 @transformer('Remove existential quantifier', (QuantifiedFormula,))
 def remove_existential_quantifier(formula: Formula) -> Formula:
     # NOTE: only remove existential quantifier, we don't want
@@ -404,6 +424,11 @@ def to_sc2(formula: Formula) -> SC2:
     logger.debug("Before standardize: %s", formula)
     formula = standardize(formula)
     logger.debug("After standardize: \n%s", pretty_print(formula))
+    formula, additional_formulas = dfs(formula, replace_disjunction)
+    for additional_formula in additional_formulas:
+        formula = formula & additional_formula
+    formula = standardize(formula)
+    logger.debug("After replace disjunction: \n%s", pretty_print(formula))
     formula, additional_formulas = dfs(formula, remove_existential_quantifier)
     scott_formula = formula # top
     for additional_formula in additional_formulas:

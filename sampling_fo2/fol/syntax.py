@@ -215,12 +215,18 @@ class QFFormula(Formula):
     def preds(self) -> frozenset[Pred]:
         return frozenset(atom.pred for atom in self.atoms())
 
+    def satisfiable(self) -> bool:
+        return backend.satisfiable(self.expr)
+
     def models(self) -> Iterable[frozenset[AtomicFormula]]:
         """
         Yield all models of the formula
 
         :rtype Iterable[frozenset[Lit]]: models
         """
+        if not self.satisfiable():
+            raise RuntimeError("Formula is not satisfiable")
+
         for model in backend.get_models(self.expr):
             yield frozenset(
                 backend.get_atom(symbol) if value else ~backend.get_atom(symbol)
@@ -232,6 +238,10 @@ class QFFormula(Formula):
         for atom in self.atoms():
             atom_substitutions[atom.expr] = atom.substitute(substitution).expr
         return QFFormula(backend.substitute(self.expr, atom_substitutions))
+
+    def sub_nullary_atoms(self, substitution: dict[AtomicFormula, bool]) -> QFFormula:
+        substitution = dict((atom.expr, value) for atom, value in substitution.items())
+        return QFFormula(backend.substitute(self.expr, substitution))
 
     def simplify(self) -> QFFormula:
         return QFFormula(backend.simplify(self.expr))
