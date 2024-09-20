@@ -11,7 +11,7 @@ from logzero import logger
 from typing import Callable
 from contexttimer import Timer
 
-from sampling_fo2.cell_graph.cell_graph import OptimizedCellGraph
+from sampling_fo2.cell_graph.cell_graph import build_cell_graphs
 
 from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
     multinomial_less_than, RingElement, Rational, round_rational
@@ -55,11 +55,6 @@ def get_config_weight_standard_faster(config: list[int],
 def get_config_weight_standard(cell_graph: CellGraph,
                                cell_config: dict[Cell, int]) -> RingElement:
     res = Rational(1, 1)
-    for cell, n in cell_config.items():
-        if n > 0:
-            # NOTE: nullary weight is multiplied once
-            res = res * cell_graph.get_nullary_weight(cell)
-            break
     for i, (cell_i, n_i) in enumerate(cell_config.items()):
         if n_i == 0:
             continue
@@ -84,70 +79,76 @@ def faster_wfomc(formula: QFFormula,
                get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
                modified_cell_sysmmetry: bool = False) -> RingElement:
     domain_size = len(domain)
-    with Timer() as t:
-        opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size, modified_cell_sysmmetry)
-    logger.info('Optimized cell graph construction time: %s', t.elapsed)
-
-    cliques = opt_cell_graph.cliques
-    nonind = opt_cell_graph.nonind
-    i2_ind = opt_cell_graph.i2_ind
-    nonind_map = opt_cell_graph.nonind_map
-
+    # with Timer() as t:
+    #     opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size, modified_cell_sysmmetry)
+    # logger.info('Optimized cell graph construction time: %s', t.elapsed)
     res = Rational(0, 1)
-    with Timer() as t:
-        for partition in multinomial_less_than(len(nonind), domain_size):
-            mu = tuple(partition)
-            if sum(partition) < domain_size:
-                mu = mu + (domain_size - sum(partition),)
-            coef = MultinomialCoefficients.coef(mu)
-            body = Rational(1, 1)
+    for opt_cell_graph, weight in build_cell_graphs(
+            formula, get_weight, True,
+            domain_size, modified_cell_sysmmetry
+    ):
+        cliques = opt_cell_graph.cliques
+        nonind = opt_cell_graph.nonind
+        i2_ind = opt_cell_graph.i2_ind
+        nonind_map = opt_cell_graph.nonind_map
 
-            for i, clique1 in enumerate(cliques):
-                for j, clique2 in enumerate(cliques):
-                    if i in nonind and j in nonind:
-                        if i < j:
-                            body = body * opt_cell_graph.get_two_table_weight(
-                                (clique1[0], clique2[0])
-                            ) ** (partition[nonind_map[i]] *
-                                  partition[nonind_map[j]])
+        res_ = Rational(0, 1)
+        with Timer() as t:
+            for partition in multinomial_less_than(len(nonind), domain_size):
+                mu = tuple(partition)
+                if sum(partition) < domain_size:
+                    mu = mu + (domain_size - sum(partition),)
+                coef = MultinomialCoefficients.coef(mu)
+                body = Rational(1, 1)
 
-            for l in nonind:
-                body = body * opt_cell_graph.get_J_term(
-                    l, partition[nonind_map[l]]
-                )
-                if not modified_cell_sysmmetry:
-                    body = body * opt_cell_graph.get_cell_weight(
-                        cliques[l][0]
-                    ) ** partition[nonind_map[l]]
+                for i, clique1 in enumerate(cliques):
+                    for j, clique2 in enumerate(cliques):
+                        if i in nonind and j in nonind:
+                            if i < j:
+                                body = body * opt_cell_graph.get_two_table_weight(
+                                    (clique1[0], clique2[0])
+                                ) ** (partition[nonind_map[i]] *
+                                      partition[nonind_map[j]])
 
-            opt_cell_graph.setup_term_cache()
-            mul = opt_cell_graph.get_term(len(i2_ind), 0, partition)
-            res = res + coef * mul * body
+                for l in nonind:
+                    body = body * opt_cell_graph.get_J_term(
+                        l, partition[nonind_map[l]]
+                    )
+                    if not modified_cell_sysmmetry:
+                        body = body * opt_cell_graph.get_cell_weight(
+                            cliques[l][0]
+                        ) ** partition[nonind_map[l]]
+
+                opt_cell_graph.setup_term_cache()
+                mul = opt_cell_graph.get_term(len(i2_ind), 0, partition)
+                res_ = res_ + coef * mul * body
+        res = res + weight * res_
     logger.info('WFOMC time: %s', t.elapsed)
-
     return res
+
 
 def standard_wfomc(formula: QFFormula,
                    domain: set[Const],
                    get_weight: Callable[[Pred], tuple[RingElement, RingElement]]) -> RingElement:
-    cell_graph = CellGraph(formula, get_weight)
     # cell_graph.show()
-    cells = cell_graph.get_cells()
-    n_cells = len(cells)
+    res = Rational(0, 1)
     domain_size = len(domain)
     MultinomialCoefficients.setup(domain_size)
-
-    res = Rational(0, 1)
-    for partition in multinomial(n_cells, domain_size):
-        coef = MultinomialCoefficients.coef(partition)
-        cell_config = dict(zip(cells, partition))
-        # logger.debug(
-        #     '=' * 15 + ' Compute WFOMC for the partition %s ' + '=' * 15,
-        #     dict(filter(lambda x: x[1] != 0, cell_config.items())
-        # ))
-        res = res + coef * get_config_weight_standard(
-            cell_graph, cell_config
-        )
+    for cell_graph, weight in build_cell_graphs(formula, get_weight):
+        res_ = Rational(0, 1)
+        cells = cell_graph.get_cells()
+        n_cells = len(cells)
+        for partition in multinomial(n_cells, domain_size):
+            coef = MultinomialCoefficients.coef(partition)
+            cell_config = dict(zip(cells, partition))
+            # logger.debug(
+            #     '=' * 15 + ' Compute WFOMC for the partition %s ' + '=' * 15,
+            #     dict(filter(lambda x: x[1] != 0, cell_config.items())
+            # ))
+            res_ = res_ + coef * get_config_weight_standard(
+                cell_graph, cell_config
+            )
+        res = res + weight * res_
     return res
 
 

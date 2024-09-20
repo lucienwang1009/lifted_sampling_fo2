@@ -3,7 +3,7 @@ function_free_logic_grammar = r"""
     atomic_ffl: predicate [left_parenthesis terms right_parenthesis]
     exactlyone: "ExactlyOne" left_square_bracket predicates right_square_bracket
     predicates: predicate ("," predicate)*
-    terms: term ("," term)*
+    terms: term* ("," term)*
     negation: not ffl
     conjunction: ffl and ffl
     disjunction: ffl or ffl
