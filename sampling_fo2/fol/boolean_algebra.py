@@ -52,7 +52,7 @@ def get_atoms(expr: Expr) -> frozenset[AtomicFormula]:
     atoms = set()
     for symbol in expr.atoms():
         atoms.add(get_atom(symbol))
-    return atoms
+    return frozenset(atoms)
 
 def get_models(expr: Expr) -> Iterable[dict[Symbol, bool]]:
     yield from satisfiable(expr, all_models=True)

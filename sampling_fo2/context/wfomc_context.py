@@ -6,8 +6,8 @@ from sampling_fo2.fol.utils import new_predicate, convert_counting_formula
 from sampling_fo2.network.constraint import CardinalityConstraint
 from sampling_fo2.fol.syntax import *
 from sampling_fo2.problems import WFOMCSProblem
-from sampling_fo2.utils import Rational
-from sampling_fo2.utils.third_typing import RingElement
+from sampling_fo2.fol.syntax import AUXILIARY_PRED_NAME, SKOLEM_PRED_NAME
+from sampling_fo2.utils.third_typing import RingElement, Rational
 
 
 class WFOMCContext(object):
@@ -35,7 +35,8 @@ class WFOMCContext(object):
         logger.info('weights for WFOMC: \n%s', self.weights)
 
     def contain_cardinality_constraint(self) -> bool:
-        return self.cardinality_constraint is not None
+        return self.cardinality_constraint is not None and \
+            not self.cardinality_constraint.empty()
 
     def contain_existential_quantifier(self) -> bool:
         return self.sentence.contain_existential_quantifier()

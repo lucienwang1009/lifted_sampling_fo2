@@ -2,6 +2,8 @@ from __future__ import annotations
 from collections import defaultdict
 
 from enum import Enum
+from functools import reduce
+import math
 import os
 import argparse
 import logging
@@ -12,6 +14,7 @@ from typing import Callable
 from contexttimer import Timer
 
 from sampling_fo2.cell_graph.cell_graph import build_cell_graphs
+from sampling_fo2.problems import WFOMCSProblem
 
 from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
     multinomial_less_than, RingElement, Rational, round_rational
@@ -26,6 +29,7 @@ class Algo(Enum):
     STANDARD = 'standard'
     FASTER = 'faster'
     FASTERv2 = 'fasterv2'
+    INCREMENTAL = 'incremental'
 
     def __str__(self):
         return self.value
@@ -75,17 +79,15 @@ def get_config_weight_standard(cell_graph: CellGraph,
 
 
 def faster_wfomc(formula: QFFormula,
-               domain: set[Const],
-               get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
-               modified_cell_sysmmetry: bool = False) -> RingElement:
+                 domain: set[Const],
+                 get_weight: Callable[[Pred], tuple[RingElement, RingElement]],
+                 modified_cell_symmetry: bool = False) -> RingElement:
     domain_size = len(domain)
-    # with Timer() as t:
-    #     opt_cell_graph = OptimizedCellGraph(formula, get_weight, domain_size, modified_cell_sysmmetry)
-    # logger.info('Optimized cell graph construction time: %s', t.elapsed)
     res = Rational(0, 1)
     for opt_cell_graph, weight in build_cell_graphs(
-            formula, get_weight, True,
-            domain_size, modified_cell_sysmmetry
+        formula, get_weight, optimized=True,
+        domain_size=domain_size,
+        modified_cell_symmetry=modified_cell_symmetry
     ):
         cliques = opt_cell_graph.cliques
         nonind = opt_cell_graph.nonind
@@ -114,7 +116,7 @@ def faster_wfomc(formula: QFFormula,
                     body = body * opt_cell_graph.get_J_term(
                         l, partition[nonind_map[l]]
                     )
-                    if not modified_cell_sysmmetry:
+                    if not modified_cell_symmetry:
                         body = body * opt_cell_graph.get_cell_weight(
                             cliques[l][0]
                         ) ** partition[nonind_map[l]]
@@ -133,7 +135,6 @@ def standard_wfomc(formula: QFFormula,
     # cell_graph.show()
     res = Rational(0, 1)
     domain_size = len(domain)
-    MultinomialCoefficients.setup(domain_size)
     for cell_graph, weight in build_cell_graphs(formula, get_weight):
         res_ = Rational(0, 1)
         cells = cell_graph.get_cells()
@@ -149,6 +150,53 @@ def standard_wfomc(formula: QFFormula,
                 cell_graph, cell_config
             )
         res = res + weight * res_
+    return res
+
+
+def incremental_wfomc(formula: QFFormula,
+                      domain: set[Const],
+                      get_weight: Callable[[Pred],
+                                           tuple[RingElement, RingElement]],
+                      leq_pred: Pred = None) -> RingElement:
+    res = Rational(0, 1)
+    domain_size = len(domain)
+    for cell_graph, weight in build_cell_graphs(
+            formula, get_weight, leq_pred=leq_pred
+    ):
+        # cell_graph.show()
+        cells = cell_graph.get_cells()
+        n_cells = len(cells)
+        domain_size = len(domain)
+
+        table = dict(
+            (tuple(int(k == i) for k in range(n_cells)),
+             cell_graph.get_cell_weight(cell))
+            for i, cell in enumerate(cells)
+        )
+        for _ in range(domain_size - 1):
+            old_table = table
+            table = dict()
+            for j, cell in enumerate(cells):
+                w = cell_graph.get_cell_weight(cell)
+                for ivec, w_old in old_table.items():
+                    w_new = w_old * w * reduce(
+                        lambda x, y: x * y,
+                        (
+                            cell_graph.get_two_table_weight((cell, cells[k]))
+                            ** int(ivec[k]) for k in range(n_cells)
+                        ),
+                        Rational(1, 1)
+                    )
+                    ivec = list(ivec)
+                    ivec[j] += 1
+                    ivec = tuple(ivec)
+
+                    w_new = w_new + table.get(ivec, Rational(0, 1))
+                    table[tuple(ivec)] = w_new
+        res = res + weight * sum(table.values())
+
+    # if leq_pred is not None:
+    #     res *= Rational(math.factorial(domain_size), 1)
     return res
 
 
@@ -196,7 +244,71 @@ def precompute_ext_weight(cell_graph: CellGraph, domain_size: int,
     return existential_weights
 
 
-def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
+def wfomc(problem: WFOMCSProblem, algo: Algo = Algo.STANDARD) -> Rational:
+    # both standard and faster WFOMCs need precomputation
+    if algo == Algo.STANDARD or algo == Algo.FASTER or \
+            algo == algo.FASTERv2:
+        MultinomialCoefficients.setup(len(problem.domain))
+
+    context = WFOMCContext(problem)
+    leq_pred = Pred('LEQ', 2)
+    if leq_pred in context.formula.preds():
+        logger.info('Linear order axiom with the predicate LEQ is found')
+        logger.info('Invoke incremental WFOMC')
+        algo = Algo.INCREMENTAL
+    else:
+        leq_pred = None
+
+    with Timer() as t:
+        if algo == Algo.STANDARD:
+            res = standard_wfomc(
+                context.formula, context.domain, context.get_weight
+            )
+        elif algo == Algo.FASTER:
+            res = faster_wfomc(
+                context.formula, context.domain, context.get_weight
+            )
+        elif algo == Algo.FASTERv2:
+            res = faster_wfomc(
+                context.formula, context.domain, context.get_weight, True
+            )
+        elif algo == Algo.INCREMENTAL:
+            res = incremental_wfomc(
+                context.formula, context.domain,
+                context.get_weight, leq_pred
+            )
+    res = context.decode_result(res)
+    logger.info('WFOMC time: %s', t.elapsed)
+    return res
+
+
+def count_distribution(problem: WFOMCSProblem, preds: list[Pred],
+                       algo: Algo = Algo.STANDARD) \
+        -> dict[tuple[int, ...], Rational]:
+    context = WFOMCContext(problem)
+    # both standard and faster WFOMCs need precomputation
+    if algo == Algo.STANDARD or algo == Algo.FASTER or \
+            algo == algo.FASTERv2:
+        MultinomialCoefficients.setup(len(problem.domain))
+    leq_pred = Pred('LEQ', 2)
+    if leq_pred in context.formula.preds():
+        logger.info('Linear order axiom with the predicate LEQ is found')
+        logger.info('Invoke incremental WFOMC')
+        algo = Algo.INCREMENTAL
+    else:
+        leq_pred = None
+
+    pred2weight = {}
+    pred2sym = {}
+    syms = create_vars('x0:{}'.format(len(preds)))
+    for sym, pred in zip(syms, preds):
+        if pred in pred2weight:
+            continue
+        weight = context.get_weight(pred)
+        pred2weight[pred] = (weight[0] * sym, weight[1])
+        pred2sym[pred] = sym
+    context.weights.update(pred2weight)
+
     if algo == Algo.STANDARD:
         res = standard_wfomc(
             context.formula, context.domain, context.get_weight
@@ -209,30 +321,10 @@ def wfomc(context: WFOMCContext, algo: Algo = Algo.STANDARD) -> Rational:
         res = faster_wfomc(
             context.formula, context.domain, context.get_weight, True
         )
-    res = context.decode_result(res)
-    return res
-
-
-def count_distribution(context: WFOMCContext, preds: list[Pred],
-                       algo: Algo = Algo.STANDARD) \
-        -> dict[tuple[int, ...], Rational]:
-    pred2weight = {}
-    pred2sym = {}
-    syms = create_vars('x0:{}'.format(len(preds)))
-    for sym, pred in zip(syms, preds):
-        if pred in pred2weight:
-            continue
-        weight = context.get_weight(pred)
-        pred2weight[pred] = (weight[0] * sym, weight[1])
-        pred2sym[pred] = sym
-    context.weights.update(pred2weight)
-    if algo == Algo.STANDARD:
-        res = standard_wfomc(
-            context.formula, context.domain, context.get_weight
-        )
-    elif algo == Algo.FASTER:
-        res = faster_wfomc(
-            context.formula, context.domain, context.get_weight
+    elif algo == Algo.INCREMENTAL:
+        res = incremental_wfomc(
+            context.formula, context.domain,
+            context.get_weight, leq_pred
         )
 
     symbols = [pred2sym[pred] for pred in preds]
@@ -277,11 +369,10 @@ if __name__ == '__main__':
 
     with Timer() as t:
         problem = parse_input(args.input)
-    context = WFOMCContext(problem)
     logger.info('Parse input: %ss', t)
 
     res = wfomc(
-        context, algo=args.algo
+        problem, algo=args.algo
     )
     logger.info('WFOMC (arbitrary precision): %s', res)
     round_val = round_rational(res)
