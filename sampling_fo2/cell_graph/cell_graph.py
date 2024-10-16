@@ -11,8 +11,6 @@ from sympy import Poly
 from copy import deepcopy
 from sampling_fo2.cell_graph.utils import conditional_on
 
-from sampling_fo2.fol.sc2 import SC2
-
 from sampling_fo2.fol.syntax import AtomicFormula, Const, Pred, QFFormula, a, b, c
 from sampling_fo2.utils import Rational, RingElement
 from sampling_fo2.utils.multinomial import MultinomialCoefficients
@@ -26,17 +24,19 @@ class CellGraph(object):
     """
 
     def __init__(self, formula: QFFormula,
-                 get_weight: Callable[[Pred], Tuple[RingElement, RingElement]]):
+                 get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
+                 leq_pred: Pred = None):
         """
         Cell graph that handles cells (1-types) and the WMC between them
 
-        :param sentence CNF: the sentence in the form of CNF
-        :param get_weight Callable[[Pred], Tuple[mpq, mpq]]: the weighting function
+        :param sentence QFFormula: the sentence in the form of quantifier-free formula
+        :param get_weight Callable[[Pred], Tuple[RingElement, RingElement]]: the weighting function
         :param conditional_formulas List[CNF]: the optional conditional formula appended in WMC computing
         """
         self.formula: QFFormula = formula
         self.get_weight: Callable[[Pred],
                                   Tuple[RingElement, RingElement]] = get_weight
+        self.leq_pred: Pred = leq_pred
         self.preds: Tuple[Pred] = tuple(self.formula.preds())
         logger.debug('prednames: %s', self.preds)
 
@@ -51,6 +51,11 @@ class CellGraph(object):
         self.gnd_formula_cc: QFFormula = self._ground_on_tuple(
             self.formula, c
         )
+        if self.leq_pred is not None:
+            self.gnd_formula_cc = self.gnd_formula_cc & self.leq_pred(c, c)
+            self.gnd_formula_ab = self.gnd_formula_ab & \
+                self.leq_pred(b, a) & \
+                (~self.leq_pred(a, b))
         logger.info('ground a b: %s', self.gnd_formula_ab)
         logger.info('ground c: %s', self.gnd_formula_cc)
 
@@ -60,7 +65,9 @@ class CellGraph(object):
         logger.info('the number of valid cells: %s',
                     len(self.cells))
 
+        logger.info('computing cell weights')
         self.cell_weights: Dict[Cell, Poly] = self._compute_cell_weights()
+        logger.info('computing two table weights')
         self.two_tables: Dict[Tuple[Cell, Cell],
                               TwoTable] = self._build_two_tables()
 
@@ -227,7 +234,8 @@ class CellGraph(object):
         for i, cell in enumerate(self.cells):
             models_1 = conditional_on(models, gnd_lits, cell.get_evidences(a))
             for j, other_cell in enumerate(self.cells):
-                if i > j:
+                # NOTE: leq is sensitive to the order of cells
+                if i > j and self.leq_pred is None:
                     tables[(cell, other_cell)] = tables[(other_cell, cell)]
                 models_2 = conditional_on(models_1, gnd_lits,
                                           other_cell.get_evidences(b))
@@ -287,7 +295,8 @@ class OptimizedCellGraph(CellGraph):
         logger.info("Built %s symmetric cliques: %s", len(cliques), cliques)
         return cliques
 
-    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> List[List[Cell]]:
+    def build_symmetric_cliques_in_ind(self, cell_indices_list) -> \
+            tuple[list[list[Cell]], list[list[int]]]:
         i1_ind_set = deepcopy(cell_indices_list[0])
         cliques: list[list[Cell]] = []
         ind_idx: list[list[int]] = []
@@ -467,15 +476,18 @@ class OptimizedCellGraph(CellGraph):
 
 
 def build_cell_graphs(formula: QFFormula,
-                    get_weight: Callable[[Pred], Tuple[RingElement, RingElement]],
-                    optimized: bool = False,
-                    domain_size: int = 0,
-                    modified_cell_symmetry: bool = False) -> Generator[tuple[CellGraph, RingElement]]:
+                      get_weight: Callable[[Pred],
+                                           Tuple[RingElement, RingElement]],
+                      leq_pred: Pred = None,
+                      optimized: bool = False,
+                      domain_size: int = 0,
+                      modified_cell_symmetry: bool = False) \
+        -> Generator[tuple[CellGraph, RingElement]]:
     nullary_atoms = [atom for atom in formula.atoms() if atom.pred.arity == 0]
     if len(nullary_atoms) == 0:
         logger.info('No nullary atoms found, building a single cell graph')
         if not optimized:
-            yield CellGraph(formula, get_weight), Rational(1, 1)
+            yield CellGraph(formula, get_weight, leq_pred), Rational(1, 1)
         else:
             yield OptimizedCellGraph(
                 formula, get_weight, domain_size, modified_cell_symmetry
@@ -490,10 +502,11 @@ def build_cell_graphs(formula: QFFormula,
                 logger.info('Formula is unsatisfiable, skipping')
                 continue
             if not optimized:
-                cell_graph = CellGraph(subs_formula, get_weight)
+                cell_graph = CellGraph(subs_formula, get_weight, leq_pred)
             else:
                 cell_graph = OptimizedCellGraph(
-                    subs_formula, get_weight, domain_size, modified_cell_symmetry
+                    subs_formula, get_weight, domain_size,
+                    modified_cell_symmetry
                 )
             weight = Rational(1, 1)
             for atom, val in zip(nullary_atoms, values):

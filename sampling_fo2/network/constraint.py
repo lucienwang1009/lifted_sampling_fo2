@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-import cmath
-
 from abc import ABC
 from typing import Callable
 from logzero import logger
@@ -43,6 +40,9 @@ class CardinalityConstraint(Constraint):
         self.gen_vars: list[Symbol]
         self.var2pred: dict[Symbol, Pred] = dict()
         self.validator: str = ""
+
+    def empty(self) -> bool:
+        return len(self.constraints) == 0
 
     def transform_weighting(self, get_weight: Callable[[Pred], tuple[Rational, Rational]]) \
             -> dict[Pred, tuple[Rational, Rational]]:

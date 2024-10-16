@@ -21,4 +21,3 @@ def conditional_on(models: dict[frozenset[AtomicFormula], RingElement],
         models.items()
     ))
     return filtered_models
-

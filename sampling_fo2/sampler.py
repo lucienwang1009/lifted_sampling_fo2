@@ -361,7 +361,7 @@ class Sampler(object):
                 logger.debug('updated q: %s', q)
         return sampled_atoms
 
-    def sample_on_config(self, config):
+    def sample_on_config(self, config) -> set[AtomicFormula]:
         logger.debug('sample on cell configuration %s', config)
         # shuffle domain elements
         random.shuffle(self.domain)
