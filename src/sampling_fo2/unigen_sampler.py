@@ -1,9 +1,8 @@
 import os
 import decimal
 import pickle
-from logzero import logger
-import logzero
-import logging
+import sys
+from loguru import logger
 from pyunigen import Sampler as unigen_sampler
 from sampling_fo2.fol.syntax import QuantifiedFormula, CNF, Const, \
     Substitution, AndCNF, OrCNF
@@ -14,9 +13,6 @@ from contexttimer import Timer
 from typing import List
 from copy import deepcopy
 import argparse
-
-
-logzero.loglevel(logging.INFO)
 
 
 class RetVal:
@@ -426,12 +422,12 @@ if __name__ == '__main__':
     args = parse_args()
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
+    logger.remove()
+    level = "DEBUG" if args.debug else "INFO"
     if args.debug:
-        logzero.loglevel(logging.DEBUG)
         args.show_samples = True
-    else:
-        logzero.loglevel(logging.INFO)
-    logzero.logfile('{}/log.txt'.format(args.output_dir), mode='w')
+    logger.add(sys.stderr, level=level)
+    logger.add('{}/log.txt'.format(args.output_dir), mode='w', level=level)
     mln, tree_constraint, cardinality_constraint = parse_mln_constraint(
         args.input)
 
@@ -439,7 +435,7 @@ if __name__ == '__main__':
     save_file = os.path.join(args.output_dir, 'samples.pkl')
     with open(save_file, 'wb') as f:
         pickle.dump(samples, f)
-    logger.info('Samples are saved in %s', save_file)
+    logger.info('Samples are saved in {}', save_file)
     if args.show_samples:
         logger.info('Samples:')
         for s in samples:

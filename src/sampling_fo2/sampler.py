@@ -1,31 +1,68 @@
 from __future__ import annotations
 
 import random
+from typing import Optional
 import numpy as np
 import argparse
 import os
-import logzero
-import logging
+import sys
 import pickle
 
 from tqdm import tqdm
-from logzero import logger
+from loguru import logger
 from contexttimer import Timer
 from collections import defaultdict
 
-from sampling_fo2.context import WFOMSContext
-from sampling_fo2.context.existential_context import \
-    BlockType, ExistentialContext, ExistentialTwoTable
-from sampling_fo2.fol.syntax import AtomicFormula, Const, a, b, \
-    AUXILIARY_PRED_NAME, PREDS_FOR_EXISTENTIAL
-from sampling_fo2.utils import MultinomialCoefficients, multinomial, \
-    Rational, RingElement, coeff_monomial, round_rational, expand
-from sampling_fo2.parser import parse_input
-from sampling_fo2.cell_graph import Cell, CellGraph
-from sampling_fo2.utils.polynomial import choices
+from wfomc import AtomicFormula, Const, a, b, \
+    PREDS_FOR_EXISTENTIAL, MultinomialCoefficients, multinomial, \
+    Rational, RingElement, coeff_monomial, round_rational, expand, \
+    parse_input
+from wfomc.cell_graph import Cell, CellGraph
+from wfomc.utils import choices, bernoulli_trial
 
-from sampling_fo2.wfomc import get_config_weight_standard_faster, \
-    get_config_weight_standard
+from sampling_fo2.context import WFOMSContext, \
+    BlockType, ExistentialContext, ExistentialTwoTable
+
+
+def get_config_weight_standard(cell_graph: CellGraph,
+                               cell_config: dict[Cell, int]) -> RingElement:
+    res = Rational(1, 1)
+    for i, (cell_i, n_i) in enumerate(cell_config.items()):
+        if n_i == 0:
+            continue
+        res = res * cell_graph.get_cell_weight(cell_i) ** n_i
+        res = res * cell_graph.get_two_table_weight(
+            (cell_i, cell_i)
+        ) ** (n_i * (n_i - 1) // 2)
+        for j, (cell_j, n_j) in enumerate(cell_config.items()):
+            if j <= i:
+                continue
+            if n_j == 0:
+                continue
+            res = res * cell_graph.get_two_table_weight(
+                (cell_i, cell_j)
+            ) ** (n_i * n_j)
+    # logger.debug('Config weight: {}', res)
+    return res
+
+
+def get_config_weight_standard_faster(config: tuple[int],
+                                      cell_weights: list[RingElement],
+                                      edge_weights: list[list[RingElement]]) \
+        -> RingElement:
+    res = Rational(1, 1)
+    for i, n_i in enumerate(config):
+        if n_i == 0:
+            continue
+        res *= cell_weights[i] ** n_i
+        res *= edge_weights[i][i] ** (n_i * (n_i - 1) // 2)
+        for j, n_j in enumerate(config):
+            if j <= i:
+                continue
+            if n_j == 0:
+                continue
+            res *= edge_weights[i][j] ** (n_i * n_j)
+    return res
 
 
 class Sampler(object):
@@ -35,10 +72,11 @@ class Sampler(object):
 
         self.domain: list[Const] = list(self.context.domain)
         self.domain_size: int = len(self.domain)
-        logger.debug('domain: %s', self.domain)
+        logger.debug('domain: {}', self.domain)
         self.cell_graph: CellGraph = CellGraph(
             self.context.formula, get_weight
         )
+        self.cell_graph.show()
         MultinomialCoefficients.setup(self.domain_size)
         self.configs, self.weights = self._get_config_weights(
             self.cell_graph, self.domain_size)
@@ -60,9 +98,9 @@ class Sampler(object):
                 'Unsatisfiable formula!!'
             )
         round_val = round_rational(wfomc)
-        logger.info('wfomc (round):%s (exp(%s))',
+        logger.info('wfomc (round):{} (exp({}))',
                     round_val, round_val.ln())
-        logger.debug('Configuration weight (round): %s', list(zip(self.configs, [
+        logger.debug('Configuration weight (round): {}', list(zip(self.configs, [
             round_rational(w) for w in self.weights
         ])))
         self.cells = self.cell_graph.get_cells()
@@ -82,7 +120,7 @@ class Sampler(object):
                     self._precompute_cb_weight(
                         self.block_cell_graph, n, self.context)
                 )
-            logger.debug('pre-computed weights for existential quantifiers:\n%s',
+            logger.debug('pre-computed weights for existential quantifiers:\n{}',
                          self.cb_weights)
 
         # for measuring performance
@@ -123,17 +161,17 @@ class Sampler(object):
             )
             cb_weights[
                 frozenset((*k, v) for k, v in cb_config.items())
-            ] += (Rational(MultinomialCoefficients.coef(partition), 1) * res)
+            ] += (Rational(MultinomialCoefficients.coef(partition), 1) * res) # pyright: ignore[reportArgumentType]
         # remove duplications
         for cb_config in cb_weights.keys():
             dup_factor = Rational(MultinomialCoefficients.coef(
                 tuple(c[2] for c in cb_config)
             ), 1)
             cb_weights[cb_config] /= dup_factor
-        return cb_weights
+        return cb_weights # pyright: ignore[reportReturnType]
 
     def _adjust_config_weights(self, configs: list[tuple[int, ...]],
-                               weights: list[RingElement],
+                               weights: list[Rational],
                                src_cell_graph: CellGraph,
                                dest_cell_graph: CellGraph) -> \
             tuple[list[tuple[int, ...]], list[Rational]]:
@@ -149,8 +187,9 @@ class Sampler(object):
 
         adjusted_config_weight = defaultdict(lambda: Rational(0, 1))
         for config, weight in zip(configs, weights):
-            adjusted_config_weight[tuple(np.dot(
-                config, mapping_mat).tolist())] += weight
+            adjusted_config_weight[
+                tuple(np.dot(config, mapping_mat).tolist())
+            ] += weight
         return list(adjusted_config_weight.keys()), \
             list(adjusted_config_weight.values())
 
@@ -172,7 +211,7 @@ class Sampler(object):
             selected_cell, selected_block = ext_config.select_cell_block_type()
             selected_idx = ext_config.reduce_element(
                 selected_cell, selected_block)
-            logger.debug('select element: %s, cell: %s, block type: %s',
+            logger.debug('select element: {}, cell: {}, block type: {}',
                          selected_idx, selected_cell, selected_block)
 
             etable_weights: dict[
@@ -215,7 +254,7 @@ class Sampler(object):
                 for cell, config in etable_config_per_cell.items():
                     for etable, num in config.items():
                         total_weight_etable *= (
-                            etable_weights[cell][etable] ** Rational(num, 1)
+                            etable_weights[cell][etable] ** num
                         )
 
                 reduced_cb_config = ext_config.reduce_cb_config(etable_config)
@@ -229,9 +268,9 @@ class Sampler(object):
                     coeff * reduced_weight
                 )
                 # logger.debug(eb_config)
-                # logger.debug('%s %s', w, total_weight)
-                if random.random() < w / total_weight:
-                    logger.debug('selected etable config:\n%s', etable_config)
+                # logger.debug('{} {}', w, total_weight)
+                if bernoulli_trial(w / total_weight): # pyright: ignore[reportArgumentType]
+                    logger.debug('selected etable config:\n{}', etable_config)
                     etable_indices = ext_config.sample_and_update(
                         etable_config)
                     logger.debug('sampled evidences in this step:')
@@ -244,7 +283,7 @@ class Sampler(object):
                             else:
                                 pair_evidences[(idx, selected_idx)
                                                ] = etable.get_evidences(True)
-                            logger.debug('(%s, %s): %s',
+                            logger.debug('({}, {}): {}',
                                          selected_idx, idx, etable)
                     # Now the ebtype assignement has been determined!
                     total_weight = w / coeff
@@ -256,9 +295,9 @@ class Sampler(object):
 
     def _compute_wmc_prod(
         self, cell_assignment: list[Cell],
-        pair_evidences: dict[tuple[int, int], frozenset[AtomicFormula]] = None
+        pair_evidences: Optional[dict[tuple[int, int], frozenset[AtomicFormula]]] = None
     ) -> list[RingElement]:
-        wmc_prod = [Rational(1, 1)]
+        wmc_prod: list[RingElement] = [Rational(1, 1)]
         n_elements = len(cell_assignment)
         # compute from back to front
         for i in range(n_elements - 1, -1, -1):
@@ -286,41 +325,42 @@ class Sampler(object):
 
     def _get_weight_poly(self, weight: RingElement):
         if self.context.contain_cardinality_constraint():
-            return coeff_monomial(expand(weight), self.monomial)
+            return coeff_monomial(expand(weight), self.monomial) # type: ignore
         return weight
 
     def _sample_binary_atoms(self, cell_assignment: list[Cell],
                              cell_weight: RingElement,
-                             binary_evidences: frozenset[AtomicFormula] = None,
-                             pair_evidences: dict[tuple[int, int],
-                                                  frozenset[AtomicFormula]] = None) -> set[AtomicFormula]:
+                             binary_evidences: Optional[frozenset[AtomicFormula]] = None,
+                             pair_evidences: Optional[dict[tuple[int, int],
+                                                           frozenset[AtomicFormula]]] = None) -> set[AtomicFormula]:
         # NOTE: here the element order matters in pair_evidences!!!
         if pair_evidences is None:
-            pair_evidences = defaultdict(list)
+            pair_evidences = defaultdict(lambda: list()) # pyright: ignore[reportAssignmentType]
             if binary_evidences is not None:
                 for evidence in binary_evidences:
                     # NOTE: we always deal with the index of domain elements here!
-                    pair_index = tuple(self.domain.index(c)
-                                       for c in evidence.atom.args)
+                    pair_index = tuple(self.domain.index(c) # pyright: ignore[reportArgumentType]
+                                       for c in evidence.args)
                     assert len(pair_index) == 2
                     if pair_index[0] < pair_index[1]:
-                        evidence = AtomicFormula(evidence.pred()(
-                            a, b), evidence.positive)
+                        evidence = AtomicFormula(evidence.pred, 
+                            (a, b), evidence.positive) # pyright: ignore[reportArgumentType]
                     else:
                         pair_index = (pair_index[1], pair_index[0])
-                        evidence = AtomicFormula(evidence.pred()(
-                            b, a), evidence.positive)
-                    pair_evidences[pair_index].append(evidence)
+                        evidence = AtomicFormula(evidence.pred, 
+                            (b, a), evidence.positive) # pyright: ignore[reportArgumentType]
+                    pair_evidences[pair_index].append(evidence) # pyright: ignore[reportAttributeAccessIssue, reportOptionalSubscript]
         wmc_prod = self._compute_wmc_prod(cell_assignment, pair_evidences)
         total_weight = self.context.decode_result(cell_weight * wmc_prod[0])
         q = Rational(1, 1)
         idx = 1
         sampled_atoms = set()
+        assert pair_evidences is not None
         for i, cell_1 in enumerate(cell_assignment):
             for j, cell_2 in enumerate(cell_assignment):
                 if i >= j:
                     continue
-                logger.debug('Sample the atom consisting of %s(%s) and %s(%s)',
+                logger.debug('Sample the atom consisting of {}({}) and {}({})',
                              i, self.domain[i], j, self.domain[j])
                 # go through all two tables
                 evidences = None
@@ -330,11 +370,13 @@ class Sampler(object):
                     (cell_1, cell_2), evidences
                 )
                 # compute the sampling distribution
+                sampled_raw_atoms = []
+                r_hat = Rational(0, 1)
                 for twotable, twotable_weight in twotables_with_weight:
                     gamma_w = self.context.decode_result(
                         cell_weight * q * twotable_weight * wmc_prod[idx]
                     )
-                    if random.random() < gamma_w / total_weight:
+                    if bernoulli_trial(gamma_w / total_weight): # pyright: ignore[reportArgumentType]
                         sampled_raw_atoms = [
                             lit for lit in twotable if lit.positive
                         ]
@@ -356,13 +398,13 @@ class Sampler(object):
                 # move forward
                 idx += 1
                 logger.debug(
-                    'sampled atoms at this step: %s', sampled_atoms_replaced
+                    'sampled atoms at this step: {}', sampled_atoms_replaced
                 )
-                logger.debug('updated q: %s', q)
+                logger.debug('updated q: {}', q)
         return sampled_atoms
 
     def sample_on_config(self, config) -> set[AtomicFormula]:
-        logger.debug('sample on cell configuration %s', config)
+        logger.debug('sample on cell configuration {}', config)
         # shuffle domain elements
         random.shuffle(self.domain)
         with Timer() as t:
@@ -373,14 +415,14 @@ class Sampler(object):
             sampled_atoms: set = self._remove_aux_atoms(
                 self._get_unary_atoms(cell_assignment)
             )
-            logger.debug('initial unary atoms: %s', sampled_atoms)
+            logger.debug('initial unary atoms: {}', sampled_atoms)
             self.t_assigning += t.elapsed
 
         pair_evidences = None
         if self.context.contain_existential_quantifier():
             pair_evidences = self._sample_ext_evidences(
                 cell_assignment, cell_weight)
-            logger.debug('sampled existential quantified literals: %s',
+            logger.debug('sampled existential quantified literals: {}',
                          pair_evidences)
 
         with Timer() as t:
@@ -396,7 +438,7 @@ class Sampler(object):
     def _remove_aux_atoms(self, atoms):
         # only return atoms with the predicate in the original input
         return set(
-            filter(lambda atom: not atom.pred.name.startswith(AUXILIARY_PRED_NAME), atoms)
+            filter(lambda atom: not atom.pred.name.startswith('@'), atoms)
         )
 
     def _replace_consts(self, term, replacement):
@@ -436,7 +478,7 @@ class Sampler(object):
                 w = w * cell_graph.get_cell_weight(cell)
         return cell_assignment, w
 
-    def sample(self, k=1):
+    def sample(self, k: int = 1) -> list[set[AtomicFormula]]:
         samples = []
         sampled_idx = choices(
             list(range(len(self.configs))), weights=self.weights, k=k)
@@ -449,16 +491,16 @@ class Sampler(object):
             samples.append(self.sample_on_config(
                 self.configs[idx]
             ))
-        logger.info('elapsed time for assigning cell type: %s',
+        logger.info('elapsed time for assigning cell type: {}',
                     self.t_assigning)
-        logger.info('elapsed time for sampling possible worlds: %s',
+        logger.info('elapsed time for sampling possible worlds: {}',
                     self.t_sampling_models)
         return samples
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Sampler for MLN',
+        description='Sampler for Two-Variable Fragment of First-Order Logic',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--input', '-i', type=str, required=True,
@@ -473,33 +515,37 @@ def parse_args():
     return args
 
 
-if __name__ == '__main__':
+def main():
     args = parse_args()
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
+    logger.remove()
+    level = "DEBUG" if args.debug else "INFO"
     if args.debug:
-        logzero.loglevel(logging.DEBUG)
         args.show_samples = True
-    else:
-        logzero.loglevel(logging.INFO)
-    logzero.logfile('{}/log.txt'.format(args.output_dir), mode='w')
+    logger.add(sys.stderr, level=level)
+    logger.add('{}/log.txt'.format(args.output_dir), mode='w', level=level)
 
     with Timer() as t:
         problem = parse_input(args.input)
     context = WFOMSContext(problem)
-    logger.info('Parse input: %ss', t)
+    logger.info('Parse input: {}s', t)
 
     with Timer() as total_t:
         with Timer() as t:
             sampler = Sampler(context)
-        logger.info('elapsed time for initializing sampler: %s', t.elapsed)
+        logger.info('elapsed time for initializing sampler: {}', t.elapsed)
         samples = sampler.sample(args.n_samples)
-        logger.info('total time for sampling: %s', total_t.elapsed)
+        logger.info('total time for sampling: {}', total_t.elapsed)
     save_file = os.path.join(args.output_dir, 'samples.pkl')
     with open(save_file, 'wb') as f:
         pickle.dump(samples, f)
-    logger.info('Samples are saved in %s', save_file)
+    logger.info('Samples are saved in {}', save_file)
     if args.show_samples:
         logger.info('Samples:')
         for s in samples:
             logger.info(sorted(str(i) for i in s))
+
+
+if __name__ == '__main__':
+    main()
