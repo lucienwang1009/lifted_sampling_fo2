@@ -134,3 +134,5 @@ forclift_complex.jar
 tools/
 exp/
 .ycm_extra_conf.py
+.serena/
+docs/
