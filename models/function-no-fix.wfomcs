@@ -1,5 +1,5 @@
 \forall X: (~func(X, X)) &
 \forall X: (\exists Y: (func(X, Y)))
 
-domain = 5
-|func| = 5
+domain = 7
+|func| = 7
